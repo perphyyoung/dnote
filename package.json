@@ -1,0 +1,41 @@
+{
+  "name": "dnote",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@12.4.2",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:ui": "vite",
+    "release": "tauri build",
+    "build": "vite build",
+    "build:rs": "cargo build --manifest-path src-tauri/Cargo.toml",
+    "gen:bindings": "node scripts/gen-bindings.mjs",
+    "typecheck": "vue-tsc --noEmit",
+    "format": "pnpm format:ui && pnpm format:rs",
+    "format:ui": "oxfmt src/",
+    "format:rs": "cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "format:check": "oxfmt src/ --check && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "test": "pnpm test:ui && pnpm test:rs",
+    "test:ui": "vitest run",
+    "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "check": "pnpm format && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.0",
+    "vue": "^3.5"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.0",
+    "@types/node": "^26.4.1",
+    "@vitejs/plugin-vue": "^5",
+    "autoprefixer": "^10.4",
+    "oxfmt": "^0.65.0",
+    "postcss": "^8.4",
+    "tailwindcss": "^3.4",
+    "typescript": "^5.6",
+    "vite": "^6",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^2"
+  }
+}

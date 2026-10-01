@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "精确权限清单：按前端实际调用的 Tauri API 逐条开放（配合 build.removeUnusedCommands 移除未用命令）。托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-hide",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

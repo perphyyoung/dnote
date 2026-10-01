@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 默认深色主题：让原生滚动条/光标/选区也走深色，避免浅色控件混进来 */
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  /* slate-900，与窗口的 backgroundColor 一致：首帧之前也不闪白 */
+  background: #0f172a;
+}
+
+/* 拖拽排序期间：禁掉文本选中与默认光标，避免拖动时选中行内文字 */
+body.dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+/* 行重排动画：TransitionGroup 在顺序变化时给其余行加 .row-move 做 FLIP 过渡 */
+.row-move {
+  transition: transform 160ms ease;
+}
+
+/* 细滚动条：行数超出窗口时降噪 */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgb(100 116 139 / 0.4);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgb(100 116 139 / 0.7);
+}

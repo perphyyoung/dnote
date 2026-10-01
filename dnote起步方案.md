@@ -15,6 +15,7 @@
 - 状态：模块级 composable 单例（抄 cdown `useCountdown.ts` 模式），不引 pinia。
 - 后端：Tauri 2.12 + tauri-specta rc.25 三件套（命令签名单一事实源）。
 - 存储：纯文本文件 `dnote.txt`，一行一条笔记。
+- 主题：默认深色（窗口 `theme: "Dark"` + slate-900 底色）。
 - 测试：vitest 测拖拽下标计算；cargo test 测文本行读写。
 
 ## 3. 依赖取舍（相对 cdown，按需裁剪）
@@ -51,6 +52,8 @@
 - **无边框**（`decorations: false`）+ 顶部 `data-tauri-drag-region` 拖动区（需 `core:window:allow-start-dragging`）。
 - 顶部只有一条极窄 header：拖动区 + 「＋」新建 + 右上角最小化按钮；无边框下没有系统按钮，隐藏/退出都靠这里与托盘（`core:window:allow-hide`）。
 - 右上角最小化按钮**用半角减号 `-`**（位置与样式与 cdown 对齐，仅字符换成半角）。
+- **默认深色主题**：窗口 `"theme": "Dark"` + `"backgroundColor": [15, 23, 42, 255]`（slate-900，首帧之前也不闪白），CSS 侧 `:root { color-scheme: dark }` 让原生滚动条/光标/选区一并走深色。
+  - 坑：这里必须写**大写 `"Dark"`**。`Theme` 的 JSON Schema 是 schemars 自动派生的、用的是变体名（`Light` / `Dark`），而 serde 反序列化是小写化后匹配（`"dark"` 也认）。CLI 先按 schema 校验，写小写会直接报 `"dark" is not valid under any of the schemas listed in the 'anyOf' keyword` 而启动失败。
 - `skipTaskbar: false`；`alwaysOnTop: false`；无透明背景、无多窗口。
 
 ## 5. 存储与命令
@@ -102,7 +105,7 @@ dnote/
   package.json  pnpm-workspace.yaml  Cargo.toml        # workspace 根 + release profile
   index.html  vite.config.ts  vitest.config.ts  tsconfig.json
   tailwind.config.js  postcss.config.js  .oxfmtrc.json
-  scripts/gen-bindings.mjs
+  scripts/gen-bindings.mjs  scripts/gen-icon.mjs
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
@@ -118,12 +121,15 @@ dnote/
     .gitignore                  # /target/ 与 /gen/schemas
     src/                        # 同名 .rs + 同名目录，不用 mod.rs
       lib.rs  main.rs
-      commands.rs  commands/{notes.rs, notes.test.rs}
+      commands.rs  commands/{notes.rs, window.rs}
       domain.rs    domain/error.rs
       infra.rs     infra/{store.rs, store.test.rs, logging.rs}
 ```
 
 Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`domain` 里只剩统一的命令错误类型。
+
+- `commands/window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐），因此没有对应的 `.test.rs`。
+- `commands/notes.rs` 只是两条命令的薄包装，真正需要测的行编解码与原子写都在 `infra/store.rs`，测试集中在 `store.test.rs`。
 
 ## 8. 关键配置
 
@@ -132,12 +138,13 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 - 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
 - vite：端口 `1420` + `strictPort`、`@` → `src`、`define.__APP_VERSION__`、`server.watch.ignored` 用**白名单**（仅 `index.html` + `src/` + `public/`，抄 cdown/paim）。
 - `.gitignore`：根放 `dnote-data*/`、`temp/`、`tmp-*`、`target/`、`node_modules/`、`dist/`、`*.log`；`src-tauri/.gitignore` 放 `/target/`、`/gen/schemas`。`Cargo.lock` 与 `src/bindings.ts` **入库**。
+- 图标：`scripts/gen-icon.mjs` 自研生成（风格抄 cdown 同名脚本）——1024×1024 深色圆角方块 + 三行笔记 + 一行被拖起的红行与 2×3 把手，内容就是「draggable note」；用法 `node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物 `icon.png` 同时拷成 `public/icon.png` 作 favicon。`app-icon.png` 是可再生的中间产物，不入库。
 
 ## 9. 实施步骤
 
 1. **脚手架**：`package.json`（pnpm pin + scripts 照 cdown 改项目名）、`pnpm-workspace.yaml`、根 `Cargo.toml`、vite/tailwind/postcss/oxfmt/vitest/tsconfig 配置。
 2. **Rust 骨架**：`lib.rs`（`specta_builder()` + 两条导出路径 + 单实例注册）、`infra/store.rs`（文本行读 + 原子写 + 数据目录）、`infra/logging.rs`（文件日志）、`commands/notes.rs`（2 条命令），配 `store.test.rs`（多行往返、空行与末尾空行往返、`\r\n` 兼容、空文件）。
-3. **配置**：`tauri.conf.json` + `capabilities/default.json` + 图标（`pnpm tauri icon` 生成，含托盘图标）。
+3. **配置**：`tauri.conf.json`（含深色主题与窗口底色）+ `capabilities/default.json` + 图标（`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物含托盘图标）。
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
@@ -152,3 +159,4 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 5. **允许空行**，空行不自动删除、原样存储与显示。
 6. **做单实例**：同时只允许一个窗口，二次启动唤起已有窗口，也就不涉及并发写。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
+8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
