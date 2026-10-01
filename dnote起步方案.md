@@ -106,6 +106,8 @@ dnote/
   index.html  vite.config.ts  vitest.config.ts  tsconfig.json
   tailwind.config.js  postcss.config.js  .oxfmtrc.json
   scripts/gen-bindings.mjs  scripts/gen-icon.mjs
+  README.md  design.md  日志使用说明.md  开发经验.md  AGENTS.md
+  .rules/git提交信息规范.md
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
@@ -148,7 +150,8 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
-7. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、Playwright e2e（抄 paim 骨架）。
+7. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置与级别开关）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
+8. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、Playwright e2e（抄 paim 骨架）。
 
 ## 10. 已确认的取舍
 

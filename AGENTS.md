@@ -1,0 +1,47 @@
+# AGENTS.md
+
+- 使用中文回答。
+- 未说「执行 / 实施」只给方案，不动代码。
+- 使用 pnpm，不用 npm；只用 `package.json` 里的命令，不要用变体。
+- 修改代码（含测试）后先跑 `pnpm check`（format → build:rs → gen:bindings → typecheck → build），通过后以**围栏代码块**输出一行提交信息，格式遵守 `.rules\git提交信息规范.md`。
+- 添加必要的注释，说明**为什么**，而非是什么；修改时不要动不相关的注释。
+- 优先修改，而非重写；只碰必须改的部分，不顺手「改进」相邻代码或格式。
+- 不要假设，不要隐藏困惑：存在多种解释、或发现实现与预期不符时，先提问再动手，不要自行改方案。
+- 禁止静默失败：优先抛出异常，其次记错误日志，再次控制台输出。
+- 及时删除因本次改动而变得未使用的代码；预先存在的死代码只提醒、不擅自删。
+- 单测文件与源文件同目录、前缀相同：Rust `foo.rs` ↔ `foo.test.rs`（源文件末尾用 `#[cfg(test)] #[path = "foo.test.rs"] mod tests;` 声明），前端 `foo.ts` ↔ `foo.test.ts`。
+- 如果本轮改动涉及的逻辑可以重构，改完提醒用户是否要重构。
+
+## 搜索要求
+
+- 搜索优先用 zg，其次是 rg / Grep，而不是默认的 grep。
+- 已知符号 / 字符串 → 精确检索（最快、零维护）；只知道「干什么、不知道叫什么」→ 语义检索，但结果**必须用精确检索复核**后再下结论。
+- 代码结构变动后（目录改名、大批文件搬迁）先跑 `zg index`（增量：补新增与变更文件）；只有索引里仍出现已删除 / 旧路径的命中时，才用 `zg index --rebuild`。
+
+## 文档索引（动手前先看）
+
+| 文件 | 内容 |
+| --- | --- |
+| `dnote起步方案.md` | 方案与依赖取舍（定位、技术栈、数据与命令、交互设计、实施步骤、已确认的取舍）——**动结构前先看** |
+| `design.md` | UI / 交互硬约定（主题、行编辑规则、拖拽、确认弹窗） |
+| `开发经验.md` | 踩过的坑与「为什么」；排查问题先翻这里 |
+| `日志使用说明.md` | 日志文件位置、级别开关、前后端打点方式 |
+| `.rules\git提交信息规范.md` | 提交信息格式 |
+| `D:\py-code\paim\tauri2项目起步指南.md` | 跨 tauri 2 项目的配置对齐清单 |
+
+## 环境要点
+
+- 命令一律 **PowerShell 7** 写，串联用 `&&`（失败短路）/ `||`（兜底）。
+- 命令输出需要截断时**一律只保留最后 100 行**，不得用其它行数。
+- `CARGO_TARGET_DIR` 是**机器级环境变量**，指向共享目录 `D:\cargo-shared-target`；所有指向构建产物的脚本必须读该变量、不得硬编码（`scripts/gen-bindings.mjs` 已是此写法）。共享 target 是**全局一把锁**：与其它 tauri 项目不能并行 build，后者只会 `Blocking waiting for file lock`（等待，不是失败）。
+- `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
+- `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
+- dev 数据在 `<项目根>/dnote-data/`（`DNOTE_DATA_DIR` 可重定向），release 在应用配置目录；两种构建互不共享。
+- 构建时打印的 `Removed unused commands from ...` 是 `build.removeUnusedCommands: true` 的正常输出，不是告警。
+
+## 结构速记
+
+- Rust 分层即目录名，依赖方向 `domain(0) ← infra(1) ← commands(2)`：`commands.rs` + `commands/`（命令）→ `domain.rs` + `domain/`（统一错误）→ `infra.rs` + `infra/`（文本行存储、文件日志）；子模块声明写在同名文件里，**不用 `mod.rs`**；入口 `lib.rs` 的 `run()`。
+- 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端的行数组是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/window.rs` 不是命令，是托盘与单例回调共用的窗口显隐。
+- 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（行数组与落盘）、`NoteLine.vue`（单行）、`NotesPanel.vue`（列表与拖拽编排）；外壳 `src/app/App.vue`（无边框标题条）。
+- 存储：`dnote.txt` 一行一条，**行序即顺序**，临时文件 + rename 原子写；行格式约定（每行都以 `\n` 结尾，含最后一行）见 `开发经验.md`，改动编解码必须跑 `pnpm test:rs`。
