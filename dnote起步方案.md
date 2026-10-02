@@ -118,7 +118,7 @@ dnote/
   index.html  vite.config.ts  vitest.config.ts  tsconfig.json
   tailwind.config.js  postcss.config.js  .oxfmtrc.json
   scripts/gen-bindings.mjs  scripts/gen-icon.mjs
-  README.md  design.md  日志使用说明.md  开发经验.md  AGENTS.md
+  README.md  design.md  日志使用说明.md  开发经验.md  通用语言.md  AGENTS.md
   .rules/git提交信息规范.md
   e2e/
     playwright.config.ts  global-setup.ts  tsconfig.json
