@@ -413,14 +413,74 @@ export function expectPersistedLines(dataDir: string, lines: string[]): Promise<
   return expect.poll(() => readPersistedLines(dataDir), { timeout: 3_000 }).toEqual(lines);
 }
 
+/// 应用落盘的防抖时长（`useNotes.ts` 的 `SAVE_DEBOUNCE_MS`；跨语言无法共享，改了要同步）
+const SAVE_DEBOUNCE_MS = 400;
+
+/**
+ * 等 `dnote.txt` 不再被应用改写：连续 `SAVE_DEBOUNCE_MS + 100` 毫秒 mtime 不变才算安静。
+ *
+ * 为什么必须等：应用的落盘是「防抖 400ms + 异步 IPC」。前一条用例停止编辑后，写入还会**迟到**
+ * 一小会儿（`applyEdit` 走 `flushNow`，那一笔 IPC 已经在飞；reload 只会丢掉挂起的定时器，
+ * 丢不掉已经发出去的 IPC）。不等它就替它写种子，会被这一笔迟到写入盖掉 ——
+ * 前一条用例**在编辑之后失败**时最容易撞上（失败点常常正好在编辑之后）。
+ *
+ * 文件早就安静时（mtime 很旧）立刻返回，所以只有"上一条用例刚写过"才会真的等。
+ */
+async function waitForFileQuiet(file: string, timeoutMs = 4_000): Promise<void> {
+  const quietMs = SAVE_DEBOUNCE_MS + 100; // 比防抖长一点：任何挂起的写入都有机会落地
+  const started = Date.now();
+  let last = mtimeOf(file);
+  // 已经安静了多久：文件从来没写过（mtime=0）就按「刚看过」算，稳妥等一轮
+  let stableSince = last === 0 ? started : Math.min(last, started);
+  while (Date.now() - started < timeoutMs) {
+    if (Date.now() - stableSince >= quietMs) return;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+    const now = mtimeOf(file);
+    if (now !== last) {
+      last = now;
+      stableSince = Date.now();
+    }
+  }
+  e2eLog.warn("[seed] 等 dnote.txt 安静超时，仍继续（有撞上迟到落盘的风险）");
+}
+
+function mtimeOf(file: string): number {
+  return fs.existsSync(file) ? fs.statSync(file).mtimeMs : 0;
+}
+
+/// 我们**自己**上次写种子之后的 mtime：此后文件没被别人动过，就说明没有挂起的应用写入要等
+let lastSeedMtime = 0;
+
 /// 把 `dnote.txt` 预置成指定内容，并让应用重新读取（reload 会重跑前端初始化）。
 /// 同文件的多个用例共用一个实例，靠它把状态复位到已知起点，避免「用 UI 造数据」把
 /// 被测功能之外的链路也拉进来。空文件就是空编辑器，不需要再补行（见 design.md）。
+///
+/// 写之前先等应用安静（见 `waitForFileQuiet`），写完**界面与文件两边都核对**；
+/// 万一那一笔迟到写入还是抢在后面（窄窗口竞争），再写一次 —— 这时应用内存已经与我们一致，必然收敛。
 export async function seedLines(app: AppHandle, page: Page, lines: string[]): Promise<void> {
+  const file = path.join(app.dataDir, "dnote.txt");
+  const want = lines.join("\n");
   fs.mkdirSync(app.dataDir, { recursive: true });
-  fs.writeFileSync(path.join(app.dataDir, "dnote.txt"), encodeLines(lines), "utf8");
-  await page.reload();
-  await expect(editor(page)).toHaveValue(lines.join("\n"));
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    // 要不要先等它安静：① 应用手上还有没落盘的改动（界面 ≠ 文件，防抖没到点）；
+    // ② 文件刚被它写过（可能有一笔 IPC 还在飞）。两者都不是就说明没什么可等的，直接写。
+    const dirty = readPersistedLines(app.dataDir).join("\n") !== (await editor(page).inputValue());
+    if (dirty || mtimeOf(file) !== lastSeedMtime) await waitForFileQuiet(file);
+    fs.writeFileSync(file, encodeLines(lines), "utf8");
+    lastSeedMtime = mtimeOf(file);
+    await page.reload();
+    try {
+      // 界面走 poll：reload 之后前端要异步读一次文件才填上
+      await expect(editor(page)).toHaveValue(want, { timeout: 1_500 });
+      if (readPersistedLines(app.dataDir).join("\n") === want) return;
+      e2eLog.warn(`[seed] 第 ${attempt} 次：界面对了但文件被盖掉，重写再试`);
+    } catch {
+      e2eLog.warn(`[seed] 第 ${attempt} 次：种子没站稳（多半被应用的迟到落盘盖掉），重写再试`);
+    }
+  }
+  throw new Error(`seedLines 两次尝试后仍未把 dnote.txt 置为期望内容：${JSON.stringify(lines)}`);
 }
 
 /// ---- fixture ----
