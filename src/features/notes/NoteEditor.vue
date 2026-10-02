@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import type { LineBox } from "@/features/notes/logic";
 import {
   caretLine,
   caretOffset,
   deleteLine,
   insertIndexAt,
+  lineIndexAt,
   lineRange,
   moveIndexAfter,
   moveItem,
@@ -27,6 +29,8 @@ const SCROLL_DAMPING = 3;
 
 const scroller = ref<HTMLDivElement | null>(null);
 const editor = ref<HTMLTextAreaElement | null>(null);
+/** 镜像测层：与 textarea 同框同字体，每个逻辑行一个 block —— 折行后的行盒几何全从它读 */
+const mirror = ref<HTMLDivElement | null>(null);
 /** 指针当前停在第几行：只让这一行的手柄显形，界面保持安静 */
 const hoverIndex = ref<number | null>(null);
 
@@ -63,7 +67,53 @@ const drag = ref<{
   ghostWidth: number;
 } | null>(null);
 
-const editorHeight = computed(() => PAD_TOP + PAD_BOTTOM + lines.value.length * ROW_H);
+/**
+ * 行盒：每个逻辑行折行后的上沿与总高（内容坐标）。**几何一律实测** —— 折行位置只有浏览器知道，
+ * 而 textarea 的 value 不在 DOM 里、问不出它的逐行排版，所以在它旁边放一个「镜像测层」
+ * （同框同字体、每个逻辑行一个 block，见模板）来读真实行盒。
+ */
+const boxes = ref<LineBox[]>([]);
+
+/** 文本区下沿（内容坐标，含 PAD_TOP）：镜像实测；还没量到就先按未折行估算，免得首帧闪一下 */
+const textBottom = computed(() => {
+  const last = boxes.value.at(-1);
+  return last ? last.top + last.height : PAD_TOP + lines.value.length * ROW_H;
+});
+
+/** textarea 与两个叠层共用的高度：文本区 + 底部留白 */
+const editorHeight = computed(() => textBottom.value + PAD_BOTTOM);
+
+/** 第 index 行的行盒上沿；测层还没量到就退回「未折行」的估算 */
+function boxTop(index: number): number {
+  return boxes.value[index]?.top ?? PAD_TOP + index * ROW_H;
+}
+
+function boxHeight(index: number): number {
+  return boxes.value[index]?.height ?? ROW_H;
+}
+
+/** 插入位 index 的边界 y：该行盒的上沿；已经到底了就是文本区下沿 */
+function insertLineTop(index: number): number {
+  return boxes.value[index]?.top ?? textBottom.value;
+}
+
+/**
+ * 读镜像测层的行盒。**文本或容器宽度一变就必须重测** —— 折行位置只由这两者决定。
+ * 用两个 rect 相减而不是 `offsetTop`：后者相对 offsetParent 的哪条边容易被记错，
+ * 而「镜像与 textarea 同框对齐」这件事用 rect 差值最直白。
+ */
+function measure(): void {
+  const el = mirror.value;
+  if (!el) return;
+  const base = el.getBoundingClientRect().top;
+  boxes.value = Array.from(el.children, (child) => {
+    const rect = child.getBoundingClientRect();
+    return { top: rect.top - base, height: rect.height };
+  });
+}
+
+// 文本一变就重测；flush: 'post' = 等镜像的 DOM 更新完再量
+watch(lines, measure, { flush: "post" });
 
 /** 插入线只在真会换位时出现：插回自己的上边或下边都等于没动 */
 const showInsertLine = computed(() => {
@@ -92,11 +142,19 @@ function onBlur(): void {
   flushNow();
 }
 
+/** 宽度一变折行位置就变（拉窗口、改缩放 / DPI），所以跟着重测 */
+let resizeObserver: ResizeObserver | null = null;
+
 onMounted(() => {
+  measure();
+  resizeObserver = new ResizeObserver(measure);
+  if (scroller.value) resizeObserver.observe(scroller.value);
   document.addEventListener("selectionchange", syncCaretLine);
 });
 
 onUnmounted(() => {
+  resizeObserver?.disconnect();
+  resizeObserver = null;
   document.removeEventListener("selectionchange", syncCaretLine);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
@@ -109,8 +167,8 @@ function onHover(e: PointerEvent): void {
   const el = scroller.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const index = Math.floor((e.clientY - rect.top + el.scrollTop - PAD_TOP) / ROW_H);
-  hoverIndex.value = index >= 0 && index < lines.value.length ? index : null;
+  // 行盒是实测的：折行后一个逻辑行可以很高，所以不能再用「(y - 顶部) / 行高」这种均匀行高算法
+  hoverIndex.value = lineIndexAt(e.clientY - rect.top + el.scrollTop, boxes.value);
 }
 
 /**
@@ -134,8 +192,8 @@ function onScrollerDown(e: PointerEvent): void {
   // 右侧滚动条也以容器为事件目标：不排除它的话，在滚动条上按下会被 preventDefault 打断拖动
   const scrollbar = el.offsetWidth - el.clientWidth;
   if (scrollbar > 0 && e.clientX > rect.right - scrollbar) return;
-  // 内容坐标：还在文本区（含 textarea 的底部留白）里就交给浏览器
-  if (e.clientY - rect.top + el.scrollTop <= PAD_TOP + lines.value.length * ROW_H) return;
+  // 内容坐标：还在文本区（含 textarea 的底部留白）里就交给浏览器；下沿按实测行盒算，折行后同样准
+  if (e.clientY - rect.top + el.scrollTop <= textBottom.value) return;
   e.preventDefault(); // 既保住焦点，也免得高亮闪一下
   area.focus();
   const end = area.value.length;
@@ -149,11 +207,14 @@ function onHandleDown(e: PointerEvent, index: number): void {
   const el = scroller.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const rowTop = rect.top - el.scrollTop + PAD_TOP + index * ROW_H;
+  // 该行盒在视口里的上沿（折行后这一块可能很高）
+  const rowTop = rect.top - el.scrollTop + boxTop(index);
   // 抓住指针：拖到编辑器外也能继续收到 move / up
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   drag.value = {
     originIndex: index,
+    // 幽灵行固定一个行高，所以抓取偏移也按一个行高钳制：捏在很高的块的下半部分时，
+    // 幽灵行贴在该块上沿附近，不会飘出去
     grabOffset: Math.min(Math.max(e.clientY - rowTop, 0), ROW_H),
     pointerY: e.clientY,
     insert: index,
@@ -207,9 +268,9 @@ function updateFromPointer(pointerY: number): void {
   const el = scroller.value;
   if (!d || !el) return;
   const rect = el.getBoundingClientRect();
-  const listTop = rect.top - el.scrollTop + PAD_TOP;
   d.pointerY = pointerY;
-  d.insert = insertIndexAt(pointerY, listTop, ROW_H, lines.value.length, d.originIndex);
+  // 把指针换成**内容坐标**再交给行盒判定：折行后的高度完全由实测决定
+  d.insert = insertIndexAt(pointerY - rect.top + el.scrollTop, boxes.value, d.originIndex);
 }
 
 // ── 应用内快捷键（键位与边界见 design.md 快捷键节）────────────────────────────
@@ -455,12 +516,13 @@ function flashDropped(index: number): void {
       class="pointer-events-none absolute inset-x-0 top-0"
       :style="{ height: `${editorHeight}px` }"
     >
-      <!-- 当前行（光标所在行）：左侧强调条 + 极淡底色；随光标走，失焦即消失 -->
+      <!-- 当前行（光标所在行）：左侧强调条 + 极淡底色；随光标走，失焦即消失。
+           折行时覆盖**整个行盒**（一行的排版块有多高就铺多高）。 -->
       <div
         v-if="caretIndex !== null && drag === null"
         class="absolute inset-x-0 border-l-2 border-slate-500 bg-slate-800/40"
         :data-caret-line="caretIndex"
-        :style="{ top: `${PAD_TOP + caretIndex * ROW_H}px`, height: `${ROW_H}px` }"
+        :style="{ top: `${boxTop(caretIndex)}px`, height: `${boxHeight(caretIndex)}px` }"
       />
     </div>
 
@@ -474,20 +536,23 @@ function flashDropped(index: number): void {
       <div
         v-if="drag"
         class="absolute inset-x-0 bg-slate-800/40"
-        :style="{ top: `${PAD_TOP + drag.originIndex * ROW_H}px`, height: `${ROW_H}px` }"
+        :style="{
+          top: `${boxTop(drag.originIndex)}px`,
+          height: `${boxHeight(drag.originIndex)}px`,
+        }"
       />
       <!-- 松手落点闪一下（220ms 淡出） -->
       <div
         v-if="droppedIndex !== null"
         class="drop-flash absolute inset-x-0 bg-sky-400/20"
-        :style="{ top: `${PAD_TOP + droppedIndex * ROW_H}px`, height: `${ROW_H}px` }"
+        :style="{ top: `${boxTop(droppedIndex)}px`, height: `${boxHeight(droppedIndex)}px` }"
       />
       <!-- 插入线：画在哪就插在哪 -->
       <div
         v-if="showInsertLine"
         class="absolute bg-sky-400/70"
         :style="{
-          top: `${PAD_TOP + (drag?.insert ?? 0) * ROW_H - 1}px`,
+          top: `${insertLineTop(drag?.insert ?? 0) - 1}px`,
           left: `${HANDLE_W}px`,
           right: '6px',
           height: '2px',
@@ -500,8 +565,8 @@ function flashDropped(index: number): void {
         class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center text-slate-600 transition-opacity active:cursor-grabbing"
         :class="index === hoverIndex || index === drag?.originIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
-          top: `${PAD_TOP + index * ROW_H}px`,
-          height: `${ROW_H}px`,
+          top: `${boxTop(index)}px`,
+          height: `${boxHeight(index)}px`,
           width: `${HANDLE_W}px`,
         }"
         aria-label="拖拽调整顺序"
@@ -515,10 +580,15 @@ function flashDropped(index: number): void {
       </button>
       <!-- 当前行右侧的行操作：绝对定位浮在文字上，不占任何布局空间；
            只在指针停在这一行时露头（鼠标指哪就说明在看哪），拖拽中藏起来免得误点 -->
+      <!-- 按钮本身仍是一行高（不该在长行上变胖），所以放在行盒里**竖直居中** -->
       <div
         v-if="showRowActions"
         class="absolute flex items-center gap-0.5"
-        :style="{ top: `${PAD_TOP + currentLine * ROW_H}px`, right: '6px', height: `${ROW_H}px` }"
+        :style="{
+          top: `${boxTop(currentLine) + (boxHeight(currentLine) - ROW_H) / 2}px`,
+          right: '6px',
+          height: `${ROW_H}px`,
+        }"
       >
         <button
           type="button"
@@ -574,17 +644,17 @@ function flashDropped(index: number): void {
 
     <!-- 无边框 textarea：编辑语义全交给浏览器 —— 回车在光标处断行（行首回车即在当前位置
          插入新行）、退格 / 删除把相邻两行合并、↑↓ 在行间移动、Ctrl+A / Ctrl+Z / 多行选区
-         都是原生的。wrap="off" + whitespace-pre：不折行，一条笔记一行，手柄才按行高对得齐。
+         都是原生的。**长行按右边界折行**（`pre-wrap` + `break-words`）：折行只影响排版，
+         逻辑行仍是 `\n` 那一行 —— 手柄 / 高亮 / 插入线的几何由旁边的镜像测层实测给出。
          relative z-10：压在背景装饰层之上、又在手柄层之下，文字因此不会被高亮染色。 -->
     <textarea
       ref="editor"
-      class="relative z-10 block w-full resize-none overflow-x-auto overflow-y-hidden whitespace-pre border-0 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
+      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
       :style="{
         lineHeight: `${ROW_H}px`,
         height: `${editorHeight}px`,
         padding: `${PAD_TOP}px 6px ${PAD_BOTTOM}px ${HANDLE_W + 2}px`,
       }"
-      wrap="off"
       spellcheck="false"
       aria-label="笔记内容"
       placeholder="写点什么…"
@@ -594,6 +664,30 @@ function flashDropped(index: number): void {
       @focus="syncCaretLine"
       @blur="onBlur"
     />
+
+    <!-- 镜像测层：textarea 的 value 不在 DOM 里、问不出它的逐行排版，所以在这里放一个**同框同字体**
+         的不可见副本，每个逻辑行一个 block —— 折行后的行盒（上沿 / 总高）全从它读（`measure()`）。
+         invisible 仍参与排版、绝对定位不占流，所以既量得准，又不影响滚动高度。
+         它必须与 textarea 共用同一批常量与同一套折行属性，否则手柄会系统性错位
+         —— e2e `09` 有一条「镜像总高 ≈ textarea 内容高」的护栏盯着这件事。 -->
+    <div
+      ref="mirror"
+      data-mirror
+      aria-hidden="true"
+      class="invisible pointer-events-none absolute inset-x-0 top-0 break-words whitespace-pre-wrap text-sm"
+      :style="{
+        lineHeight: `${ROW_H}px`,
+        padding: `${PAD_TOP}px 6px ${PAD_BOTTOM}px ${HANDLE_W + 2}px`,
+      }"
+    >
+      <!-- v-text 而不是插值：模板里插值周围的缩进会被编译器整理掉，而行内的空格必须原样保留 -->
+      <div
+        v-for="(line, index) in lines"
+        :key="index"
+        :style="{ minHeight: `${ROW_H}px` }"
+        v-text="line"
+      />
+    </div>
   </div>
 
   <!-- 幽灵行：正被拿着的那一行本身，跟手贴着指针（fixed 定位，不参与文本流） -->

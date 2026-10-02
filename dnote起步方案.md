@@ -80,7 +80,7 @@
 
 ### 6.1 编辑器：一个 `<textarea>`，编辑语义全交给浏览器
 
-- **决定**：不再「每行一个 `<input>`」，整份笔记就是一个 `<textarea>`（`wrap="off"` + `whitespace-pre`，一条笔记一行）。
+- **决定**：不再「每行一个 `<input>`」，整份笔记就是一个 `<textarea>`（长行按右边界**折行**：`pre-wrap` + `break-word`；折行只改排版，逻辑行仍是 `\n` 那一行）。
 - **为什么**：记事本该有的语义（光标处断行、合并相邻两行、行间移动、多行选区、撤销）若由 N 个单行输入框模拟，得逐条自研，而且**输入框之间不存在连续选区**，多行选择只能退化成「整行选区」—— 这正是「不符合直觉」的根源。代价与弯路见 `开发经验.md`。
 
 ### 6.2 拖拽调序：Pointer 事件 + 左侧行手柄层（不用 HTML5 DnD）
@@ -176,7 +176,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts`（整份文本 + 落盘）→ `NoteEditor.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. **二期（可选）**：全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 

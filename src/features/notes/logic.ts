@@ -20,6 +20,30 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 /**
+ * 一个**逻辑行**排版后的行盒（内容坐标）：`top` 是它的上沿，`height` 是它折行后的总高
+ * —— 未折行时就是行高，长行按右边界折行后可以有若干个行高那么高。
+ *
+ * 几何一律**实测**（镜像测层，见 `NoteEditor.vue`）：折行位置只有浏览器知道，
+ * 所以这里不接受「行高 × 下标」这种假设。
+ */
+export interface LineBox {
+  top: number;
+  height: number;
+}
+
+/**
+ * 指针 y（内容坐标）落在哪一个逻辑行里：首行之上 → 0，末行之下 → 最后一行。
+ * 行盒首尾相接（行与行之间没有间隙），所以从头找一个「还没越过它下沿」的即可。
+ * 空列表 → null（没有行可落）。
+ */
+export function lineIndexAt(pointerY: number, boxes: readonly LineBox[]): number | null {
+  for (let i = 0; i < boxes.length; i += 1) {
+    if (pointerY < boxes[i].top + boxes[i].height) return i;
+  }
+  return boxes.length === 0 ? null : boxes.length - 1;
+}
+
+/**
  * 由指针位置换算**插入位**（0..行数）。
  *
  * 规则是「行优先 + 看方向」，与人把文件拖进文件夹的直觉一致：
@@ -28,18 +52,16 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
  *
  * 于是「拖到哪一行的位置，就放到那一行」；指针停在自己那一行时正好得到 origin + 1，
  * 与「没动」等价（调用方据此不画插入线、不写盘）。指针拖到列表之外时钳制到两端，
- * 所以拖出窗口也仍然落在首行之前 / 末行之后。
+ * 所以拖出窗口也仍然落在首行之前 / 末行之后。折行不改变这套规则，只改变几何来源。
  */
 export function insertIndexAt(
   pointerY: number,
-  listTop: number,
-  rowHeight: number,
-  count: number,
+  boxes: readonly LineBox[],
   originIndex: number,
 ): number {
-  if (count <= 0 || rowHeight <= 0) return 0;
-  const row = clamp(Math.floor((pointerY - listTop) / rowHeight), 0, count - 1);
-  return row >= originIndex ? row + 1 : row;
+  const index = lineIndexAt(pointerY, boxes);
+  if (index === null) return 0;
+  return index >= originIndex ? index + 1 : index;
 }
 
 // ── 行级编辑（应用内快捷键用）────────────────────────────────────────────────

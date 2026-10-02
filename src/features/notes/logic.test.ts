@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import type { LineBox } from "@/features/notes/logic";
 import {
   caretLine,
   caretOffset,
   deleteLine,
   insertIndexAt,
+  lineIndexAt,
   lineRange,
   moveIndexAfter,
   moveItem,
@@ -42,43 +44,83 @@ describe("moveItem", () => {
   });
 });
 
-describe("insertIndexAt", () => {
-  // 三行摆在视口 Y = 100 起，每行 28px；插入位取值 0..3
-  const TOP = 100;
-  const H = 28;
-  const N = 3;
-  /// 第 row 行行内偏下一点的位置（行优先模型下，行内位置不影响结果）
-  const inRow = (row: number) => TOP + row * H + 20;
+// 行盒是实测的几何（长行折行后一个逻辑行可以很高），这里就用普通对象喂进去
+const TOP = 100;
+const H = 28;
+const N = 3;
+/// 未折行的三行：从 TOP 起每行 H 高
+const ROWS: LineBox[] = Array.from({ length: N }, (_, i) => ({ top: TOP + i * H, height: H }));
+/// 第 row 行行内偏下一点的位置（行优先模型里，行内位置不影响结果）
+const inRow = (row: number) => TOP + row * H + 20;
 
+describe("lineIndexAt", () => {
+  it("落在各行里（含行的首末一格）", () => {
+    expect(lineIndexAt(TOP, ROWS)).toBe(0);
+    expect(lineIndexAt(TOP + H - 1, ROWS)).toBe(0);
+    expect(lineIndexAt(TOP + H, ROWS)).toBe(1);
+    expect(lineIndexAt(TOP + 2 * H + H - 1, ROWS)).toBe(2);
+  });
+
+  it("首行之上与末行之下都钳制到两端", () => {
+    expect(lineIndexAt(-999, ROWS)).toBe(0);
+    expect(lineIndexAt(TOP - 1, ROWS)).toBe(0);
+    expect(lineIndexAt(9999, ROWS)).toBe(2);
+  });
+
+  it("折行后一个逻辑行可以很高（只按它的上下沿判所属）", () => {
+    const wrapped: LineBox[] = [
+      { top: 0, height: 3 * H }, // 折成 3 个视觉行
+      { top: 3 * H, height: H },
+    ];
+    expect(lineIndexAt(0, wrapped)).toBe(0);
+    expect(lineIndexAt(2 * H, wrapped)).toBe(0);
+    expect(lineIndexAt(3 * H, wrapped)).toBe(1);
+    expect(lineIndexAt(4 * H - 1, wrapped)).toBe(1);
+  });
+
+  it("空列表没有行可落", () => {
+    expect(lineIndexAt(123, [])).toBeNull();
+  });
+});
+
+describe("insertIndexAt", () => {
   it("指针停在自己那一行 → 落在 origin + 1，等价于没动", () => {
     for (let origin = 0; origin < N; origin += 1) {
-      expect(insertIndexAt(inRow(origin), TOP, H, N, origin)).toBe(origin + 1);
+      expect(insertIndexAt(inRow(origin), ROWS, origin)).toBe(origin + 1);
     }
   });
 
   it("往下拖：插到指针所在那一行的下面", () => {
-    expect(insertIndexAt(inRow(1), TOP, H, N, 0)).toBe(2);
-    expect(insertIndexAt(inRow(2), TOP, H, N, 0)).toBe(3);
+    expect(insertIndexAt(inRow(1), ROWS, 0)).toBe(2);
+    expect(insertIndexAt(inRow(2), ROWS, 0)).toBe(3);
   });
 
   it("往上拖：插到指针所在那一行的上面", () => {
-    expect(insertIndexAt(inRow(0), TOP, H, N, 2)).toBe(0);
-    expect(insertIndexAt(inRow(1), TOP, H, N, 2)).toBe(1);
+    expect(insertIndexAt(inRow(0), ROWS, 2)).toBe(0);
+    expect(insertIndexAt(inRow(1), ROWS, 2)).toBe(1);
   });
 
   it("同一行：往下拖落到它之后，往上拖落到它之前", () => {
-    expect(insertIndexAt(inRow(1), TOP, H, N, 0)).toBe(2); // 0 → 2 - 1 = 1
-    expect(insertIndexAt(inRow(1), TOP, H, N, 2)).toBe(1); // 2 → 1
+    expect(insertIndexAt(inRow(1), ROWS, 0)).toBe(2); // 0 → 2 - 1 = 1
+    expect(insertIndexAt(inRow(1), ROWS, 2)).toBe(1); // 2 → 1
   });
 
   it("指针在列表之外钳制到两端（拖出窗口也落在首/末）", () => {
-    expect(insertIndexAt(-999, TOP, H, N, 2)).toBe(0);
-    expect(insertIndexAt(999, TOP, H, N, 0)).toBe(N); // 末尾 = 插到最后一行下面
+    expect(insertIndexAt(-999, ROWS, 2)).toBe(0);
+    expect(insertIndexAt(999, ROWS, 0)).toBe(N); // 末尾 = 插到最后一行下面
   });
 
-  it("空列表或行高非法返回 0", () => {
-    expect(insertIndexAt(500, TOP, H, 0, 0)).toBe(0);
-    expect(insertIndexAt(500, TOP, 0, N, 1)).toBe(0);
+  it("折行行按整块算：指针落在这块里就是这一行", () => {
+    const wrapped: LineBox[] = [
+      { top: 0, height: 3 * H }, // 第 0 行折成 3 个视觉行
+      { top: 3 * H, height: H },
+    ];
+    expect(insertIndexAt(2 * H, wrapped, 0)).toBe(1); // 停在自己这一块里 → 等价于没动
+    expect(insertIndexAt(2 * H, wrapped, 1)).toBe(0); // 往上拖 → 插到它上面
+  });
+
+  it("空列表返回 0", () => {
+    expect(insertIndexAt(500, [], 0)).toBe(0);
   });
 });
 
