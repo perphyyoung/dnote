@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropIndex, moveItem, pasteLines, rangeLines, selectionText } from "@/features/notes/logic";
+import { dropIndex, moveItem } from "@/features/notes/logic";
 
 describe("moveItem", () => {
   it("向后移动", () => {
@@ -69,61 +69,5 @@ describe("dropIndex", () => {
 
   it("行高为 0 时退化为原地不动", () => {
     expect(dropIndex(500, 0, 0, 2, 6)).toBe(2);
-  });
-});
-
-describe("pasteLines", () => {
-  it("单行文本不接管，交给浏览器默认行为", () => {
-    expect(pasteLines("没有换行", "", "")).toBeNull();
-    expect(pasteLines("", "", "")).toBeNull();
-  });
-
-  it("多行文本按行拆开", () => {
-    expect(pasteLines("a\nb\nc", "", "")).toEqual(["a", "b", "c"]);
-  });
-
-  it("CRLF 与单独的 CR 都归一化（Windows 剪贴板给的是 CRLF）", () => {
-    expect(pasteLines("a\r\nb", "", "")).toEqual(["a", "b"]);
-    expect(pasteLines("a\rb", "", "")).toEqual(["a", "b"]);
-  });
-
-  it("首行接光标前的原文，末行接光标后的原文", () => {
-    expect(pasteLines("B\nC", "A", "D")).toEqual(["AB", "CD"]);
-  });
-
-  it("末尾换行会多出一个空行", () => {
-    expect(pasteLines("a\n", "", "")).toEqual(["a", ""]);
-  });
-});
-
-describe("selectionText", () => {
-  const LINES = ["一", "二", "", "四"];
-
-  it("闭区间含两端，用 \\n 连接", () => {
-    expect(selectionText(LINES, 0, 2)).toBe("一\n二\n");
-    expect(selectionText(LINES, 1, 3)).toBe("二\n\n四");
-  });
-
-  it("反向选区（从下往上拖）结果相同", () => {
-    expect(selectionText(LINES, 3, 0)).toBe("一\n二\n\n四");
-  });
-
-  it("单行选区就是该行", () => {
-    expect(selectionText(LINES, 2, 2)).toBe("");
-    expect(selectionText(LINES, 0, 0)).toBe("一");
-  });
-
-  it("越界下标钳制到边界", () => {
-    expect(selectionText(LINES, -5, 99)).toBe("一\n二\n\n四");
-    expect(selectionText(LINES, 99, 99)).toBe("四");
-  });
-
-  it("空列表返回空串", () => {
-    expect(selectionText([], 0, 3)).toBe("");
-  });
-
-  it("rangeLines 返回选中的行", () => {
-    expect(rangeLines(LINES, 1, 2)).toEqual(["二", ""]);
-    expect(rangeLines(LINES, 2, 1)).toEqual(["二", ""]);
   });
 });

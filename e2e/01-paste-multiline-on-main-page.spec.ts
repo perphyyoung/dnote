@@ -1,18 +1,20 @@
 /**
- * 主界面多行粘贴：一次粘贴进来多行文本时，应当拆成多行落在当前行下方，
- * 而不是被浏览器压成一行。
+ * 主界面多行粘贴：一次粘贴进来多行文本时，应当原样按行落下，而不是被压成一行。
  *
- * 背景：每行是 `<input type="text">`，浏览器对单行输入框的默认粘贴会把换行丢掉
- * （`a\nb` 粘出来是 `ab`），所以必须自己接 `paste` 事件把多行拆开。
+ * 现在编辑器是一个 `<textarea>`，多行粘贴是**浏览器原生行为**（在旧的「每行一个 <input>」
+ * 模型下必须自己接管 `paste`：单行输入框会把换行压平）。本文件因此变成一条回归保护：
+ * 谁要是把编辑器换回单行输入框，这里立刻会红。
  *
- * 本文件只有一个用例，用应用启动时的空数据目录即可，不需要预置数据。
+ * 断言口径：不只看界面上的文本，还核对**落盘的 dnote.txt**。
  */
 import { expect } from "@playwright/test";
 import {
+  caretTo,
+  editor,
+  editorText,
   expectPersistedLines,
-  pasteText,
-  rowCount,
-  rowTexts,
+  pasteAt,
+  seedLines,
   setClipboard,
   test,
   withClipboard,
@@ -23,18 +25,36 @@ import { e2eLog } from "./e2e-logger";
 const LINES = ["第一行", "第二行", "第三行"];
 
 test.describe("主界面多行粘贴", () => {
-  test("粘贴多行文本会拆成多行", async ({ page, app }) => {
+  // 同文件的用例共用一个实例与数据目录，每个用例先把数据复位到已知起点
+  test.beforeEach(async ({ app, page }) => {
+    await seedLines(app, page, []);
+  });
+
+  test("粘贴多行文本会原样落下", async ({ page, app }) => {
     // 剪贴板是整机唯一资源，与其它 worker 的剪贴板操作串行
     await withClipboard(async () => {
       setClipboard(LINES.join("\r\n"));
-      await pasteText(page, 0);
+      await pasteAt(page, 0);
     });
 
-    const texts = await rowTexts(page);
-    const count = await rowCount(page);
-    e2eLog.info(`[paste] 粘贴后 ${count} 行`, texts);
+    const text = await editorText(page);
+    e2eLog.info("[paste] 粘贴后的内容", text);
 
-    expect(texts).toEqual(LINES);
+    expect(text).toBe(LINES.join("\n"));
     await expectPersistedLines(app.dataDir, LINES);
+  });
+
+  test("在行中间粘贴会就地拆开，光标前后各归其位", async ({ page, app }) => {
+    await seedLines(app, page, ["ab"]);
+
+    await withClipboard(async () => {
+      setClipboard("X\r\nY");
+      await editor(page).click();
+      await caretTo(page, 0, 1); // 光标落在 a 与 b 之间
+      await page.keyboard.press("Control+V");
+    });
+
+    expect(await editorText(page)).toBe("aX\nYb");
+    await expectPersistedLines(app.dataDir, ["aX", "Yb"]);
   });
 });

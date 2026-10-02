@@ -122,9 +122,9 @@ async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
 
   const browser = await connectAppCdp(cdpPort, child, 10_000);
   const page = await findPageByWindowLabel(browser, "main", 15_000);
-  // 就绪判据：应用外壳挂上 + 行列表渲染出第一行（load_notes 是异步的）
+  // 就绪判据：应用外壳挂上 + 编辑器渲染出来（load_notes 是异步的，编辑器 v-if="ready"）
   await expect(page.getByRole("application", { name: "dnote 主窗口" })).toBeAttached();
-  await expect(rowInput(page, 0)).toBeVisible();
+  await expect(editor(page)).toBeVisible();
   e2eLog.info(`[app] 实例就绪 worker=${workerIndex} seq=${seq} dataDir=${dataDir}`);
   return { child, browser, page, dataDir, cdpPort, env };
 }
@@ -210,24 +210,43 @@ async function findPageByWindowLabel(
   throw new Error(`未找到窗口 label=${label} 的页面`);
 }
 
-/// ---- 行 ----
+/// ---- 编辑器 ----
+/// 界面上只有**一个** textarea：整份笔记就是它的 value，行是其中的 `\n` 分隔（见 useNotes.ts）。
+/// 编辑语义（回车拆行、退格 / 删除合并、↑↓ 行间移动、多行选区与 Ctrl+C）全部是浏览器原生的，
+/// 所以测试侧也不再需要「行选区」那套定位器。
 
-/// 全部行的输入框（按 DOM 顺序，等价于界面上的上下顺序）
-export function rowInputs(page: Page): Locator {
+/// 编辑器本身（aria-label 固定为「笔记内容」）
+export function editor(page: Page): Locator {
   return page.getByRole("textbox", { name: "笔记内容" });
 }
 
-export function rowInput(page: Page, index: number): Locator {
-  return rowInputs(page).nth(index);
+/// 编辑器里的全文（行序即上下顺序）
+export function editorText(page: Page): Promise<string> {
+  return editor(page).inputValue();
 }
 
-/// 各行的文本（按界面顺序）
-export function rowTexts(page: Page): Promise<string[]> {
-  return rowInputs(page).evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
+/// 把光标放到第 line 行（0 起）的 column 列。用来构造「行首回车」「多行选择」这类前置状态：
+/// 这些用例要的正是**光标位置**，而不只是焦点（原生行为按光标位置决定结果）。
+export function caretTo(page: Page, line: number, column = 0): Promise<void> {
+  return editor(page).evaluate(
+    (el, at) => {
+      const area = el as HTMLTextAreaElement;
+      area.focus();
+      let offset = 0;
+      for (let i = 0; i < at.line; i += 1) {
+        const next = area.value.indexOf("\n", offset);
+        offset = next === -1 ? area.value.length : next + 1;
+      }
+      const pos = Math.min(offset + at.column, area.value.length);
+      area.setSelectionRange(pos, pos);
+    },
+    { line, column },
+  );
 }
 
-export function rowCount(page: Page): Promise<number> {
-  return rowInputs(page).count();
+/// 每行的拖拽手柄（按行序，等价于界面上的上下顺序）
+export function lineHandles(page: Page): Locator {
+  return page.getByRole("button", { name: "拖拽调整顺序" });
 }
 
 /// ---- 置顶（localStorage 里的界面偏好）----
@@ -315,27 +334,23 @@ export function readClipboard(): string {
   return b64 ? Buffer.from(b64, "base64").toString("utf8") : "";
 }
 
-/// 从 from 行拖到 to 行（多行选择）。
-/// 必须分步移动：一步跳到目标不会产生中间的 pointermove，
-/// 而「指针落在别的行上」正是进入行选区模式的触发条件。
-export async function dragRows(page: Page, from: number, to: number): Promise<void> {
-  const a = await rowInput(page, from).boundingBox();
-  const b = await rowInput(page, to).boundingBox();
-  if (!a || !b) throw new Error(`取不到第 ${from} / ${to} 行的位置`);
+/// 按住第 from 行的手柄，把它拖到第 to 行。
+/// 必须分步移动：一步跳到目标不会产生中间的 pointermove，而位移正是换位的依据（见 logic.dropIndex）。
+export async function dragLine(page: Page, from: number, to: number): Promise<void> {
+  const a = await lineHandles(page).nth(from).boundingBox();
+  const b = await lineHandles(page).nth(to).boundingBox();
+  if (!a || !b) throw new Error(`取不到第 ${from} / ${to} 行的手柄位置`);
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
   await page.mouse.down();
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
   await page.mouse.up();
 }
 
-/// 当前选中的行（ARIA 选中态，不依赖 class）
-export function selectedRows(page: Page): Locator {
-  return page.getByRole("option", { selected: true });
-}
-
-/// 点进第 index 行后按 Ctrl+V（真实剪贴板粘贴，不走合成事件）。**须在 `withClipboard` 内调用。**
-export async function pasteText(page: Page, index: number): Promise<void> {
-  await rowInput(page, index).click();
+/// 点进编辑器、把光标落到第 line 行行首，再按 Ctrl+V
+/// （真实剪贴板粘贴，不走合成事件）。**须在 `withClipboard` 内调用。**
+export async function pasteAt(page: Page, line = 0): Promise<void> {
+  await editor(page).click();
+  await caretTo(page, line);
   await page.keyboard.press("Control+V");
 }
 
@@ -368,12 +383,12 @@ export function expectPersistedLines(dataDir: string, lines: string[]): Promise<
 
 /// 把 `dnote.txt` 预置成指定内容，并让应用重新读取（reload 会重跑前端初始化）。
 /// 同文件的多个用例共用一个实例，靠它把状态复位到已知起点，避免「用 UI 造数据」把
-/// 被测功能之外的链路也拉进来。空列表会被应用补成一行空行（见 design.md）。
+/// 被测功能之外的链路也拉进来。空文件就是空编辑器，不需要再补行（见 design.md）。
 export async function seedLines(app: AppHandle, page: Page, lines: string[]): Promise<void> {
   fs.mkdirSync(app.dataDir, { recursive: true });
   fs.writeFileSync(path.join(app.dataDir, "dnote.txt"), encodeLines(lines), "utf8");
   await page.reload();
-  await expect(rowInput(page, 0)).toHaveValue(lines[0] ?? "");
+  await expect(editor(page)).toHaveValue(lines.join("\n"));
 }
 
 /// ---- fixture ----

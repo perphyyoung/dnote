@@ -33,8 +33,8 @@
 
 裁掉（相比 cdown）：
 
-- 一切 id / `sort_order` / 时间戳 / 领域模型结构体 → 存储就是行数组（见 §5）。
-- `ConfirmDialog.vue` → 一行文本不值得二次确认，删除走行内「×」直接生效（后续靠 undo/redo 兜底，见 §9）。
+- 一切 id / `sort_order` / 时间戳 / 领域模型结构体 → 存储就是那份文本本身（见 §5）。
+- `ConfirmDialog.vue` → 一行文本不值得二次确认：删除就是原生的退格 / `Delete`，直接生效（文本编辑可用 `Ctrl+Z` 撤销，结构操作的可撤销性见 §9 二期）。
 - 损坏文件备份与回落（`*.json.bak`、`migrate_*`）→ 纯文本没有「解析失败」这一说。
 - `tauri-plugin-dialog`、导入导出、`@vuepic/vue-datepicker`、`settings` / `date-picker` 第二窗口、`tauri-plugin-autostart`。
 - asset protocol / `protocol-asset` 特性；`vue-router`、pinia、rusqlite、`ColumnWidths` 之类可选持久化字段。
@@ -72,44 +72,43 @@
 - `load_notes() -> Vec<String>` —— 返回全部行，前端不再排序。
 - `save_notes(lines: Vec<String>)` —— 整文件重写。
 
-前端持有唯一的行数组，是全部数据的唯一事实源；编辑、插入、删除、拖拽**全部在前端本地完成**，改动后防抖 400ms 调一次 `save_notes` 落盘（失焦立即 flush）。整文件重写天然不会出现「部分更新写坏」，原子写保证异常退出最多丢最后一个防抖窗口。
+前端持有唯一的一份文本（= `dnote.txt` 的内容本身），是全部数据的唯一事实源；编辑与拖拽**全部在前端本地完成**，改动后防抖 400ms 调一次 `save_notes` 落盘（拖拽结束 / 失焦立即 flush）。整文件重写天然不会出现「部分更新写坏」，原子写保证异常退出最多丢最后一个防抖窗口。
 
 ## 6. 交互设计
 
-### 6.1 行的编辑规则
+### 6.1 编辑器：一个 `<textarea>`，编辑语义全交给浏览器
 
-- **点击行内任意位置**即可编辑：每行就是一个无边框 `<input>`，没有展示态/编辑态切换，没有卡片容器。
-- `Enter` → 在本行下方插入一条空行并聚焦。
-- 空行上按 `Backspace`，或点行尾悬停出现的「×」→ 直接删除该行（不弹确认）并聚焦上一行。
-- **多行粘贴必须拆行**：`<input>` 的默认粘贴会把换行压平（换行变空格），所以自己接 `paste` 事件，用 `clipboardData` 的原始文本按 `CRLF|CR|LF` 拆行 —— 首行接光标前原文、末行接光标后原文、中间行落到下方；只有不含换行时不接管。纯函数 `pasteLines` 放 `logic.ts` 由 vitest 覆盖。
-- **空行不作任何自动处理**：失焦、切窗口、重启都不会清理空行；仅当整个列表为空（文件中一行都没有）时自动补一条空行，保证永远有地方输入。
+**决定**：不再「每行一个 `<input>`」，整份笔记就是一个 `<textarea>`（`wrap="off"` + `whitespace-pre`，一条笔记一行）。
 
-### 6.2 拖拽调序：Pointer 事件（不用 HTML5 DnD）
+- **点击任意位置**即可编辑：没有展示态 / 编辑态切换，没有卡片容器，也没有保存按钮。
+- **回车在光标处断行**：行首回车把当前行整体下推、新空行插在**当前位置**；行中回车把光标后的文字带走；行尾回车等于在下面加一行。
+- **退格 / `Delete` 合并相邻两行**（光标落在接缝处）；行内删字符仍是原生。
+- `↑↓` 在行间移动、`Home` / `End`、`Ctrl+A`、`Ctrl+Z`（撤销）—— 全是原生。
+- **空行不作任何自动处理**：失焦、切窗口、重启都不清理空行；整份内容为空时就是空编辑器（`placeholder` 提示，不再自动补行）。
+- 多行粘贴、中文输入法组字回车（上屏不断行）也都是原生行为。
+
+为什么这么做：这些语义若由「N 个单行输入框」模拟，得逐条自研，而且**输入框之间不存在连续选区**，多行选择只能退化成「整行选区」—— 这正是「不符合直觉」的根源。取舍与代价（拖拽失去 FLIP 让位动画等）见 `开发经验.md`。
+
+### 6.2 拖拽调序：Pointer 事件 + 左侧行手柄层（不用 HTML5 DnD）
 
 **WebView2 下原生 HTML5 `dragstart/drop` 不触发**（paim 已踩实，见 `useTagDragToCard.ts` 注释），统一用 Pointer 事件：
 
-- 行首 hover 时出现一个极小的拖拽点（`⠿`）承载 `pointerdown`；`setPointerCapture(pointerId)` 抓取，移动超阈值（5px）才进入拖拽态（避免与「点击进输入框」冲突）。
-- 拖拽中：被拖行 `transform: translateY(dy)` 跟手 + `z-index`/阴影抬升；其余行按目标下标做 `transition` 让位（不动 DOM，只改 class）。
-- `pointerup` / `pointercancel`：算出最终下标 → 本地重排（乐观更新）→ 防抖 `save_notes`。
-- 拖拽期间 `user-select: none`；拖拽点加 `touch-action: none`。
+- 手柄按行铺在编辑器左侧、**只在该行被悬停时**显形（用指针 Y 换算行号）；整层 `pointer-events: none`，只有手柄可点，不挡 textarea 的点击与落光标。
+- 手柄上 `pointerdown` → `setPointerCapture(pointerId)`；行高与内边距与文本**共用同一套常量**（`NoteEditor.vue` 一处定义、textarea 用行内样式），手柄才与文本对齐。
+- 拖拽中：被拖行当前落点铺一条高亮，内容**实时重排**（乐观更新）；`pointerup` / `pointercancel` 时 `flushNow` 落盘。
+- 换位阈值是**半行高**（`dropIndex` 四舍五入）；拖拽期 `body.dragging` 关掉 `user-select`，手柄加 `touch-action: none`。
 
-### 6.3 多行选择与多行复制
+### 6.3 选择与复制：全部原生
 
-单行内的拖选与 Ctrl+C 保持浏览器原生行为；**多行**选择自己实现（每行是独立的 `<input>`，浏览器不可能跨元素选中文字）：
-
-- 按下时只记锚点行；**指针落到别的行**才进入行选区（还在同一行内就什么都不做，交给原生文字选择）；进入时 `blur()` 主动结束输入框里的原生选中高亮，避免两套高亮并存。
-- 选区是闭区间 `[start, end]`，反向拖同一结果；选中行用 `aria-selected` 表达（列表是 `listbox`、每行是 `option`），e2e 据此断言。
-- 行选区内 Ctrl+C 自己接管 `copy` 事件写剪贴板（各行用 `\n` 连接），**没有选区时不接管**，单行复制仍走原生；点任意行 / `Esc` / 任何结构变动都会清掉选区。
-- 多行粘贴与多行复制共用同一套行模型，因此复制出来的文本必须能原样粘回去。
+- 行内拖选、多行拖选、`Ctrl+A` 全选、`Ctrl+C` 复制都是浏览器原生行为，应用**不接管** `copy` / `paste` / `pointerdown`。
+- 因此没有「行选区」这种中间概念，不会出现两套高亮并存、或「想选文字却变成选行」；复制出来的文本能原样粘回去（本来就是同一份文本）。
 
 ### 6.4 纯函数下沉到 `logic.ts`（vitest 覆盖）
 
-DOM 事件只负责喂参数，全部计算都是无 DOM 依赖的纯函数：
+DOM 事件只负责喂参数，全部计算都是无 DOM 依赖的纯函数（编辑语义已由浏览器承担，所以只剩拖拽这两条）：
 
 - `moveItem<T>(list, from, to)` —— 移动元素，越界钳制。
 - `dropIndex(pointerY, startY, rowHeight, originIndex, count)` —— 由位移量换算目标行下标（基准固定在按下那一刻，实时重排才可逆）。
-- `pasteLines(text, before, after)` —— 多行粘贴拆行；不含换行返回 `null`（不接管）。
-- `rangeLines(lines, start, end)` / `selectionText(lines, start, end)` —— 行选区取行与拼文本（`\n` 连接）。
 
 ## 7. 目录结构
 
@@ -123,20 +122,21 @@ dnote/
   .rules/git提交信息规范.md  .sentrux/rules.toml
   e2e/
     playwright.config.ts  global-setup.ts  tsconfig.json
-    e2e-helpers.ts              # 起实例 / CDP 连窗口 / 行读写 / 剪贴板 / 落盘断言
+    e2e-helpers.ts              # 起实例 / CDP 连窗口 / 编辑器读写与光标 / 剪贴板 / 落盘断言
     e2e-logger.ts               # 测试侧日志 + 用例分节（写 dnote.log）
     01-paste-multiline-on-main-page.spec.ts
     02-multiline-select-and-copy-on-main-page.spec.ts
     03-always-on-top-on-main-page.spec.ts
+    04-enter-key-on-main-page.spec.ts
+    05-drag-reorder-on-main-page.spec.ts
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
     app/App.vue
     utils/logger.ts
     features/notes/
-      NotesPanel.vue            # 行列表：拖拽编排 + 新建
-      NoteLine.vue              # 单行：input + 拖拽点 + 删除「×」
-      useNotes.ts               # composable：单例行数组 + 防抖 save_notes
+      NoteEditor.vue            # 一个 textarea + 左侧行手柄层（拖拽编排）
+      useNotes.ts               # composable：整份文本 + 防抖 save_notes
       logic.ts  logic.test.ts   # 纯函数：moveItem / dropIndex
   src-tauri/
     tauri.conf.json  capabilities/default.json  icons/
@@ -171,24 +171,23 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 1. **脚手架**：`package.json`（pnpm pin + scripts 照 cdown 改项目名）、`pnpm-workspace.yaml`、根 `Cargo.toml`、vite/tailwind/postcss/oxfmt/vitest/tsconfig 配置。
 2. **Rust 骨架**：`lib.rs`（`specta_builder()` + 两条导出路径 + 单实例注册（仅 release 构建））、`infra/store.rs`（文本行读 + 原子写 + 数据目录）、`infra/logging.rs`（文件日志）、`commands/notes.rs`（2 条命令），配 `store.test.rs`（多行往返、空行与末尾空行往返、`\r\n` 兼容、空文件）。
 3. **配置**：`tauri.conf.json`（含深色主题与窗口底色）+ `capabilities/default.json` + 图标（`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`）+ dev 图标（`node scripts/gen-dev-icon.mjs`）。
-4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
+4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts`（整份文本 + 落盘）→ `NoteEditor.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
-6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
+6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
-9. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
+9. **二期（可选）**：**结构操作的 undo/redo**（原生 `Ctrl+Z` 只覆盖文本编辑，拖拽重排撤不回来）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 
 ## 10. 已确认的取舍
 
 1. `identifier` = `com.dnote.perphyyoung`。
 2. 窗口形态：**无边框**（自绘 header，与 cdown 一致）。
-3. 删除**不做**二次确认，删除即生效；后续加 undo/redo 兜底。
+3. 删除**不做**二次确认，删除即生效；文本编辑可由原生 `Ctrl+Z` 撤销，结构操作的 undo/redo 留二期。
 4. **要托盘**；全局热键**后期再加**（`tauri-plugin-global-shortcut`，`Ctrl+Alt+N`），一期不引。
 5. **允许空行**，空行不自动删除、原样存储与显示。
 6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
 9. **dev 用通用「DEV」图标**（`scripts/gen-dev-icon.mjs` 生成）：不绑定本项目、可整段复制到别的项目；托盘与任务栏保持一致，release 才用应用自身图标。**e2e 不建托盘**（`DNOTE_NO_TRAY`），任务栏保留。
-9. **多行粘贴必须拆行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。
-10. **多行选择与多行复制**（单行内保持原生选择；多行自己实现行选区，Ctrl+C 写 `\n` 连接的多行文本）。
+10. **编辑器是一个 `<textarea>`**（不是每行一个 `<input>`）：编辑语义全部用浏览器原生 —— 回车在光标处断行（**行首回车即在当前位置插入新行**）、退格 / `Delete` 合并相邻两行、`↑↓` 行间移动、多行选区与复制、`Ctrl+Z` 撤销；应用只接管拖拽行排序与落盘。代价是拖拽失去 FLIP 让位动画（见 `开发经验.md`）。
 11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。

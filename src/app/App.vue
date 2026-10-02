@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import NotesPanel from "@/features/notes/NotesPanel.vue";
+import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
 
-const { ready, error, appendRow } = useNotes();
+const { ready, error, appendLine } = useNotes();
 
 /// 置顶偏好存 WebView 的 localStorage：它是「界面偏好」而不是笔记内容，
 /// 混进 dnote.txt 会破坏「存储内容 = 界面内容」的约定。窗口配置默认置顶，
@@ -63,7 +63,7 @@ function hideToTray() {
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
         title="新建一行"
-        @click="appendRow"
+        @click="appendLine"
       >
         ＋
       </button>
@@ -109,8 +109,9 @@ function hideToTray() {
       </button>
     </header>
 
-    <main class="min-h-0 flex-1 overflow-y-auto px-1.5 py-2">
-      <NotesPanel v-if="ready" />
+    <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
+    <main class="min-h-0 flex-1">
+      <NoteEditor v-if="ready" />
     </main>
 
     <footer

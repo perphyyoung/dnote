@@ -26,11 +26,6 @@ body.dragging {
   cursor: grabbing;
 }
 
-/* 行重排动画：TransitionGroup 在顺序变化时给其余行加 .row-move 做 FLIP 过渡 */
-.row-move {
-  transition: transform 160ms ease;
-}
-
 /* 细滚动条：行数超出窗口时降噪 */
 *::-webkit-scrollbar {
   width: 8px;

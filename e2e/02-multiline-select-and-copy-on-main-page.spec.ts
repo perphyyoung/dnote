@@ -1,22 +1,15 @@
 /**
- * 主界面多行选择与复制：按住鼠标从一行拖到另一行选中整个行区间，Ctrl+C 复制成多行文本。
+ * 主界面多行选择与复制：选区跨越多行时，Ctrl+C 复制出的就是选中那段文本。
  *
- * 与 01 互补：01 管「粘贴进来多行」，本文件管「把多行复制出去」——两者共用同一套行模型，
- * 所以复制出来的文本必须能原样再粘回去。
+ * 与 01 互补：01 管「粘贴进来多行」，本文件管「把多行复制出去」。
+ * 现在编辑器是一个 `<textarea>`，多行选区是浏览器原生的（旧的「每行一个 <input>」模型做不到：
+ * 输入框之间没有连续选区，只能用「整行选区」近似，也复制不了半行）。
  *
- * 断言口径：不只看界面上高亮了几行，还要读**系统剪贴板**核对内容
+ * 断言口径：不只看界面上选了什么，还要读**系统剪贴板**核对内容
  * （只改 UI 不写剪贴板的实现会在这里露馅）。
  */
 import { expect, type Page } from "@playwright/test";
-import {
-  dragRows,
-  readClipboard,
-  rowInputs,
-  seedLines,
-  selectedRows,
-  test,
-  withClipboard,
-} from "./e2e-helpers";
+import { caretTo, readClipboard, seedLines, test, withClipboard } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
 /// 预置三行：这样「选前两行」这种非全覆盖的断言才有区分度
@@ -38,32 +31,32 @@ function copyAndRead(page: Page): Promise<string> {
 
 test.describe("主界面多行选择与复制", () => {
   // 同文件的用例共用一个应用实例与数据目录，每个用例先把数据复位到已知的三行
-  // （seedLines 会 reload，顺带清掉上一用例残留的行选区）
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
   });
 
-  test("拖选前两行后 Ctrl+C 复制出两行文本", async ({ page }) => {
-    await dragRows(page, 0, 1);
-    await expect(selectedRows(page)).toHaveCount(2);
+  test("从第二行行首选到行尾，Ctrl+C 复制出两行", async ({ page }) => {
+    await caretTo(page, 1, 0);
+    await page.keyboard.press("Shift+ArrowDown"); // 选到第三行行首
+    await page.keyboard.press("Shift+End"); // 再选到第三行行尾
 
     const text = await copyAndRead(page);
     e2eLog.info("[copy] 剪贴板内容", text);
-    expect(text).toBe("第一行\n第二行");
+    expect(text).toBe("第二行\n第三行");
   });
 
-  test("从下往上拖选得到同样的区间", async ({ page }) => {
-    await dragRows(page, 2, 0);
-    await expect(selectedRows(page)).toHaveCount(3);
+  test("从下往上选得到同样的区间", async ({ page }) => {
+    await caretTo(page, 2, 3); // 光标在第三行行尾
+    await page.keyboard.press("Shift+Home"); // 选到第三行行首
+    await page.keyboard.press("Shift+ArrowUp"); // 再往上吃到第二行行首
 
-    expect(await copyAndRead(page)).toBe("第一行\n第二行\n第三行");
+    expect(await copyAndRead(page)).toBe("第二行\n第三行");
   });
 
-  test("点击某一行会清掉选区", async ({ page }) => {
-    await dragRows(page, 0, 2);
-    await expect(selectedRows(page)).toHaveCount(3);
+  test("Ctrl+A 全选后复制的是整份内容", async ({ page }) => {
+    await caretTo(page, 0, 0);
+    await page.keyboard.press("Control+A");
 
-    await rowInputs(page).nth(1).click();
-    await expect(selectedRows(page)).toHaveCount(0);
+    expect(await copyAndRead(page)).toBe(LINES.join("\n"));
   });
 });
