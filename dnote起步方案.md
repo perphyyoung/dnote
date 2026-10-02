@@ -119,7 +119,7 @@ dnote/
   tailwind.config.js  postcss.config.js  .oxfmtrc.json
   scripts/gen-bindings.mjs  scripts/gen-icon.mjs
   README.md  design.md  日志使用说明.md  开发经验.md  通用语言.md  AGENTS.md
-  .rules/git提交信息规范.md
+  .rules/git提交信息规范.md  .sentrux/rules.toml
   e2e/
     playwright.config.ts  global-setup.ts  tsconfig.json
     e2e-helpers.ts              # 起实例 / CDP 连窗口 / 行读写 / 剪贴板 / 落盘断言
@@ -141,14 +141,14 @@ dnote/
     .gitignore                  # /target/ 与 /gen/schemas
     src/                        # 同名 .rs + 同名目录，不用 mod.rs
       lib.rs  main.rs
-      commands.rs  commands/{notes.rs, window.rs}
+      commands.rs  commands/{notes.rs, main_window.rs}
       domain.rs    domain/error.rs
       infra.rs     infra/{store.rs, store.test.rs, logging.rs}
 ```
 
 Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`domain` 里只剩统一的命令错误类型。
 
-- `commands/window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐），因此没有对应的 `.test.rs`。
+- `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐），因此没有对应的 `.test.rs`；文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
 - `commands/notes.rs` 只是两条命令的薄包装，真正需要测的行编解码与原子写都在 `infra/store.rs`，测试集中在 `store.test.rs`。
 
 ## 8. 关键配置
@@ -167,7 +167,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 3. **配置**：`tauri.conf.json`（含深色主题与窗口底色）+ `capabilities/default.json` + 图标（`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物含托盘图标）。
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
-6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
+6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
 7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。

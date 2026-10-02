@@ -1,0 +1,81 @@
+# 分层与依赖方向 —— 与 AGENTS.md「结构速记」和 dnote起步方案.md 保持一致
+# layers:order 越小越基础,依赖只能从大 order 流向小 order
+#   rust: domain(0) ← infra(1) ← commands(2)
+#     与 paim 相反:本项目 infra/store 持久化的是纯文本行,domain 最基础、只剩统一错误类型。
+#     与 paim 的差异是设计取舍不同,单项目内只允许这一个方向。
+#   web : bindings(3) ← shared(4) ← features(5) ← app(6)
+#   e2e(9) 可引用任意层
+# boundaries:与 order 无关的点名禁令,给出比 layer_direction 更明确的违规原因
+
+[constraints]
+max_cycles = 0
+max_cc = 25
+no_god_files = true
+
+# ==== Rust 后端(src-tauri/src):commands 薄壳 → infra 基础件 → domain 领域 ====
+
+# ---- 领域逻辑(order 0):统一错误类型,最基础,不引用任何内部层 ----
+[[layers]]
+name = "rust-domain"
+paths = ["src-tauri/src/domain/**"]
+order = 0
+
+# ---- 基础件(order 1):infra/ 下为纯文本行存储与文件日志 ----
+[[layers]]
+name = "rust-infra"
+paths = ["src-tauri/src/infra/**"]
+order = 1
+
+# ---- 命令与组合根(order 2):commands/ 薄壳命令 + lib.rs 注册表 + main.rs 入口 ----
+[[layers]]
+name = "rust-commands"
+paths = [
+  "src-tauri/src/commands/**",
+  "src-tauri/src/lib.rs",
+  "src-tauri/src/main.rs",
+]
+order = 2
+
+# ==== Vue 前端(src):app → features → shared → bindings ====
+
+# ---- bindings(order 3):tauri-specta 生成文件,零内部依赖,禁止手改引用 ----
+[[layers]]
+name = "web-bindings"
+paths = ["src/bindings.ts"]
+order = 3
+
+# ---- 共享件(order 4):logger 等 utils,不依赖业务切片 ----
+[[layers]]
+name = "web-shared"
+paths = ["src/utils/**"]
+order = 4
+
+# ---- 特征切片(order 5):notes 业务模块,两端对齐 ----
+[[layers]]
+name = "web-features"
+paths = ["src/features/**"]
+order = 5
+
+# ---- 应用根(order 6):入口、根组件 ----
+[[layers]]
+name = "web-app"
+paths = ["src/main.ts", "src/app/**", "src/vite-env.d.ts"]
+order = 6
+
+# ---- 测试(order 9):e2e 与脚本可引用任意层 ----
+[[layers]]
+name = "e2e"
+paths = ["e2e/**", "scripts/**"]
+order = 9
+
+# ==== 点名禁令(boundaries 与 order 无关) ====
+
+[[boundaries]]
+from = "src/bindings.ts"
+to = "src/**"
+reason = "bindings.ts 为 tauri-specta 生成文件,禁止引用业务代码或手工编辑"
+
+[[boundaries]]
+from = "src/**"
+to = "e2e/**"
+reason = "应用源码禁止依赖 e2e 测试代码"

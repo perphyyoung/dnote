@@ -3,7 +3,7 @@
 - 使用中文回答。
 - 未说「执行 / 实施」只给方案，不动代码。
 - 使用 pnpm，不用 npm；只用 `package.json` 里的命令，不要用变体。
-- 修改代码（含测试）后先跑 `pnpm check`（format → build:rs → gen:bindings → typecheck → build），通过后以**围栏代码块**输出一行提交信息，格式遵守 `.rules\git提交信息规范.md`。
+- 修改代码（含测试）后先跑 `pnpm check`（format → build:rs → gen:bindings → typecheck → build），通过后再按需跑 `pnpm test` / `sentrux check .` / `pnpm e2e`；验证通过才以**围栏代码块**输出一行提交信息，格式遵守 `.rules\git提交信息规范.md`。
 - 添加必要的注释，说明**为什么**，而非是什么；修改时不要动不相关的注释。
 - 优先修改，而非重写；只碰必须改的部分，不顺手「改进」相邻代码或格式。
 - 不要假设，不要隐藏困惑：存在多种解释、或发现实现与预期不符时，先提问再动手，不要自行改方案。
@@ -28,6 +28,7 @@
 | `开发经验.md` | 踩过的坑与「为什么」；排查问题先翻这里 |
 | `日志使用说明.md` | 日志文件位置、级别开关、前后端打点方式 |
 | `.rules\git提交信息规范.md` | 提交信息格式 |
+| `.sentrux/rules.toml` | 分层与依赖方向的强制规则（`sentrux check .`）——**改结构前先看** |
 | `D:\py-code\paim\tauri2项目起步指南.md` | 跨 tauri 2 项目的配置对齐清单 |
 
 ## 环境要点
@@ -45,8 +46,9 @@
 
 ## 结构速记
 
+- 分层与依赖方向由 `.sentrux/rules.toml` 强制（`sentrux check .`）：Rust `domain(0) ← infra(1) ← commands(2)`（依赖只能从大 order 流向小 order）、Web `bindings(3) ← shared(4) ← features(5) ← app(6)`、`e2e(9)` 可引用任意层；另有两条点名禁令（`bindings.ts` 不得引用 `src/**`、`src/**` 不得引用 `e2e/**`）。**改结构前先看该文件**。
 - Rust 分层即目录名，依赖方向 `domain(0) ← infra(1) ← commands(2)`：`commands.rs` + `commands/`（命令）→ `domain.rs` + `domain/`（统一错误）→ `infra.rs` + `infra/`（文本行存储、文件日志）；子模块声明写在同名文件里，**不用 `mod.rs`**；入口 `lib.rs` 的 `run()`。
-- 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端的行数组是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/window.rs` 不是命令，是托盘与单例回调共用的窗口显隐。
+- 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端的行数组是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/main_window.rs` 不是命令，是托盘与单例回调共用的窗口显隐（文件名叫 `main_window` 而非 `window`，是为了避开 sentrux 对 `@tauri-apps/api/window` 的后缀解析误报）。
 - 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（行数组与落盘）、`NoteLine.vue`（单行）、`NotesPanel.vue`（列表与拖拽编排）；外壳 `src/app/App.vue`（无边框标题条）。
 - 存储：`dnote.txt` 一行一条，**行序即顺序**，临时文件 + rename 原子写；行格式约定（每行都以 `\n` 结尾，含最后一行）见 `开发经验.md`，改动编解码必须跑 `pnpm test:rs`。
 - `e2e/`：`e2e-helpers.ts`（fixture：每文件一个实例 / CDP 连窗口 / 行读写 / 真实剪贴板 + `withClipboard` 锁 / `seedLines` / 落盘断言）、`e2e-logger.ts`（写 `dnote.log`，含用例分节）、`playwright.config.ts`（workers 4）、`global-setup.ts`（构建内嵌前端的调试二进制并清残留）。

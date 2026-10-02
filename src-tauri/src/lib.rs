@@ -73,7 +73,7 @@ pub fn run() {
     // 跳过注册，避免与正在运行的开发实例互相踢掉。
     if !infra::store::is_isolated_instance() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            commands::window::show_main_window(app);
+            commands::main_window::show_main_window(app);
         }));
     }
 
@@ -125,7 +125,7 @@ pub fn run() {
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => commands::window::show_main_window(app),
+                        "show" => commands::main_window::show_main_window(app),
                         "quit" => {
                             // 退出前显式保存窗口状态（插件在应用退出时也会自动保存）
                             use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -148,9 +148,9 @@ pub fn run() {
                             let app = tray.app_handle();
                             if let Some(w) = app.get_webview_window("main") {
                                 if w.is_visible().unwrap_or(false) {
-                                    commands::window::hide_main_window(app);
+                                    commands::main_window::hide_main_window(app);
                                 } else {
-                                    commands::window::show_main_window(app);
+                                    commands::main_window::show_main_window(app);
                                 }
                             }
                         }
