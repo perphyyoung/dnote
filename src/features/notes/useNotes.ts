@@ -10,7 +10,7 @@
 // 模块级单例状态（抄 cdown useCountdown 的模式）：App.vue 与 NoteEditor.vue
 // 调的是同一个 useNotes()，拿到的是同一份 content。
 
-import { computed, nextTick, ref } from "vue";
+import { computed, ref } from "vue";
 import { commands } from "@/bindings";
 import { log } from "@/utils/logger";
 
@@ -24,14 +24,6 @@ const error = ref<string | null>(null);
 
 /** 行数组：只给「拖拽行排序」当视图用（手柄按行排布），事实源仍是 content */
 const lines = computed(() => content.value.split("\n"));
-
-/** 编辑器元素由 NoteEditor 注册：header 的「＋」要能聚焦并把光标落到末尾 */
-let editorEl: HTMLTextAreaElement | null = null;
-
-/** NoteEditor 挂载 / 卸载时登记自己的 textarea（卸载传 null） */
-export function registerEditor(el: HTMLTextAreaElement | null): void {
-  editorEl = el;
-}
 
 // ── 落盘 ────────────────────────────────────────────────────────────────────
 // 用 promise 链串行化写入：调用按入队顺序执行，且执行时才取当前 content，
@@ -92,22 +84,9 @@ export function setContent(text: string): void {
   scheduleSave();
 }
 
-/** 末尾追加一个空行并聚焦（header 的「＋」）：等价于把光标放到末尾再按回车 */
-export function appendLine(): void {
-  content.value = `${content.value}\n`;
-  scheduleSave();
-  void nextTick(() => {
-    const el = editorEl;
-    if (!el) return;
-    el.focus();
-    const end = el.value.length;
-    el.setSelectionRange(end, end);
-  });
-}
-
 // 单窗口应用：模块加载即读取一次，不挂生命周期钩子
 void load();
 
 export function useNotes() {
-  return { content, lines, ready, error, setContent, appendLine };
+  return { content, lines, ready, error, setContent };
 }

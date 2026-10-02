@@ -54,7 +54,7 @@
 - Rust 分层即目录名，依赖方向 `domain(0) ← infra(1) ← commands(2)`：`commands.rs` + `commands/`（命令）→ `domain.rs` + `domain/`（统一错误）→ `infra.rs` + `infra/`（文本行存储、文件日志）；子模块声明写在同名文件里，**不用 `mod.rs`**；入口 `lib.rs` 的 `run()`。
 - 应用内快捷键：用**元素级** `keydown`（不挂 `document`、不引 `global-shortcut`）；判定用 `e.code`，输入法组字中（`e.isComposing`）一律放行；**结构性编辑（含拖拽落盘）一律走 `applyEdit`**（`execCommand` 全选替换）以保住 `Ctrl+Z` 与光标 —— 直接改 `value` 会丢撤销栈、并把插入符甩到文末（见 `开发经验.md`）；键位若对应可点按钮，`title` 必须带 `(快捷键)`。键位与边界见 `design.md` 快捷键节。
 - 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端那份文本是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/main_window.rs` 不是命令，是托盘与单例回调共用的窗口显隐（文件名叫 `main_window` 而非 `window`，是为了避开 sentrux 对 `@tauri-apps/api/window` 的后缀解析误报）。
-- 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（**整份文本** `content` + 落盘 + `lines` 派生）、`NoteEditor.vue`（**一个 `<textarea>` + 左侧行手柄层**，拖拽编排在这里）；外壳 `src/app/App.vue`（无边框标题条：拖动区 + `＋` 新建 + 置顶图钉 + `-` 隐藏到托盘）。
+- 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（**整份文本** `content` + 落盘 + `lines` 派生）、`NoteEditor.vue`（**一个 `<textarea>` + 左侧行手柄层**，拖拽编排在这里）；外壳 `src/app/App.vue`（无边框标题条：拖动区 + 置顶图钉 + `-` 隐藏到托盘；**没有「新建一行」按钮** —— 新行就是回车，见 `design.md`）。
 - **编辑语义用浏览器原生的，不要自己实现一套**（回车在光标处断行、退格 / `Delete` 合并相邻两行、`↑↓` 行间移动、`Ctrl+A` / `Ctrl+Z` / 多行选区）；应用只接管两件事：拖拽行排序与落盘。理由见 `开发经验.md`。
 - 界面偏好（目前只有置顶）存 **localStorage**（在 WebView profile 里），不进 `dnote.txt` —— 那个文件只放笔记内容。
 - 存储：`dnote.txt` 一行一条，**行序即顺序**，临时文件 + rename 原子写；行格式约定（每行都以 `\n` 结尾，含最后一行）见 `开发经验.md`，改动编解码必须跑 `pnpm test:rs`。

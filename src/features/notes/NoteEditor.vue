@@ -9,7 +9,7 @@ import {
   moveIndexAfter,
   moveItem,
 } from "@/features/notes/logic";
-import { flushNow, registerEditor, setContent, useNotes } from "@/features/notes/useNotes";
+import { flushNow, setContent, useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
 
 const { content, lines } = useNotes();
@@ -93,12 +93,10 @@ function onBlur(): void {
 }
 
 onMounted(() => {
-  registerEditor(editor.value);
   document.addEventListener("selectionchange", syncCaretLine);
 });
 
 onUnmounted(() => {
-  registerEditor(null);
   document.removeEventListener("selectionchange", syncCaretLine);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);

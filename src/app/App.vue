@@ -5,7 +5,7 @@ import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
 
-const { ready, error, appendLine } = useNotes();
+const { ready, error } = useNotes();
 
 /// 置顶偏好存 WebView 的 localStorage：它是「界面偏好」而不是笔记内容，
 /// 混进 dnote.txt 会破坏「存储内容 = 界面内容」的约定。窗口配置默认置顶，
@@ -59,14 +59,6 @@ function hideToTray() {
     >
       <span class="select-none pl-1 text-xs font-medium tracking-wide text-slate-500"> dnote </span>
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
-      <button
-        type="button"
-        class="flex h-6 w-6 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
-        title="新建一行"
-        @click="appendLine"
-      >
-        ＋
-      </button>
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded transition"
