@@ -8,6 +8,8 @@
  * 并行模型：`workers: 4` + `fullyParallel: false` —— 文件之间并行、文件内串行。
  * 实例的数据目录用 `DNOTE_DATA_DIR` 重定向到 temp/ 下，与开发实例的数据互不干扰。
  * e2e 跑的是 debug 构建，而单实例只在 release 注册，所以多个 e2e 实例能同时跑。
+ * 实例一律不建托盘图标（`launchApp` 注入 `DNOTE_NO_TRAY=1`）：并行的每个实例都建托盘的话，
+ * 系统托盘会被一串 DEV 图标塞满，而用例又碰不到托盘。任务栏图标与窗口不受影响。
  *
  * 注意：**系统剪贴板是整机唯一资源**，涉及剪贴板的动作必须包在 `withClipboard` 里，
  * 否则并行 worker 会互相串内容（见 e2e-helpers.ts 的注释）。

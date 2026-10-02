@@ -99,6 +99,7 @@ function dataDirFor(workerIndex: number, seq: number): string {
 /// spawn 一个应用实例、连上 CDP、拿到就绪的主窗口页面。
 /// `DNOTE_DATA_DIR` 只重定向数据目录；单实例只在 release 注册，debug（e2e / dev）不抢锁，
 /// 所以多个 e2e 实例能并行（dev 之间则由 vite 的 1420 端口拦住，不需要额外机制）。
+/// 托盘不建（`DNOTE_NO_TRAY`），但窗口与任务栏图标照旧。
 async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
   setWorkerTag(`w${workerIndex}-${seq}`);
   const dataDir = dataDirFor(workerIndex, seq);
@@ -108,6 +109,9 @@ async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
     DNOTE_DATA_DIR: dataDir,
     // 应用侧日志与测试侧同写 dnote.log：默认 info，按时间顺序读即可还原整轮时序
     DNOTE_LOG: "info",
+    // 不建托盘：并行 4 worker × 每文件一实例，系统托盘会被一串 DEV 图标塞满，还会盖住常驻实例的图标。
+    // 代价：e2e 里不要点 header 的 `-`（隐藏到托盘），没有托盘就再没有唤回入口了。
+    DNOTE_NO_TRAY: "1",
     // WebView2 profile 按 worker 复用（worker 内文件是顺序跑的，不会同时开两个实例）
     WEBVIEW2_USER_DATA_FOLDER: path.join(TEMP, `wv2-w${workerIndex}`),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,

@@ -117,59 +117,67 @@ pub fn run() {
                     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
                 };
 
-                let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
-                let sep = PredefinedMenuItem::separator(app)?;
-                let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
-
                 // dev 构建统一用通用的 DEV 图标，release 用应用自身图标（见 infra/tray.rs）。
-                // 任务栏也一起换，免得「托盘是 DEV、任务栏还是正式图标」这种半吊子状态。
+                // 任务栏图标与托盘无关，也不受下面的开关影响，照常设置。
                 let icon = infra::tray::icon(app.handle());
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.set_icon(icon.clone());
                 }
 
-                TrayIconBuilder::with_id("dnote-tray")
-                    .icon(icon)
-                    .tooltip(if cfg!(debug_assertions) {
-                        "dnote (dev)"
-                    } else {
-                        "dnote"
-                    })
-                    .menu(&menu)
-                    .show_menu_on_left_click(false)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "show" => commands::main_window::show_main_window(app),
-                        "quit" => {
-                            // 退出前显式保存窗口状态（插件在应用退出时也会自动保存）
-                            use tauri_plugin_window_state::{AppHandleExt, StateFlags};
-                            let _ = app.save_window_state(
-                                StateFlags::all() & !StateFlags::VISIBLE & !StateFlags::DECORATIONS,
-                            );
-                            app.exit(0);
-                        }
-                        _ => {}
-                    })
-                    .on_tray_icon_event(|tray, event| {
-                        // 左键单击按可见性 toggle：隐藏 → 显示并聚焦；可见 → 隐藏。
-                        // 不能用 is_focused 参与判断：点击托盘时窗口已先失焦，恒走显示分支。
-                        if let TrayIconEvent::Click {
-                            button: MouseButton::Left,
-                            button_state: MouseButtonState::Up,
-                            ..
-                        } = event
-                        {
-                            let app = tray.app_handle();
-                            if let Some(w) = app.get_webview_window("main") {
-                                if w.is_visible().unwrap_or(false) {
-                                    commands::main_window::hide_main_window(app);
-                                } else {
-                                    commands::main_window::show_main_window(app);
+                // e2e 等无人值守场景（`DNOTE_NO_TRAY`）不建托盘：并发实例会把系统托盘塞满一串
+                // DEV 图标，也没人会去点它。注意此时 header 的 `-` 隐藏就再没有唤回入口了。
+                if infra::tray::enabled() {
+                    let show = MenuItem::with_id(app, "show", "显示", true, None::<&str>)?;
+                    let sep = PredefinedMenuItem::separator(app)?;
+                    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+                    let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
+
+                    TrayIconBuilder::with_id("dnote-tray")
+                        .icon(icon)
+                        .tooltip(if cfg!(debug_assertions) {
+                            "dnote (dev)"
+                        } else {
+                            "dnote"
+                        })
+                        .menu(&menu)
+                        .show_menu_on_left_click(false)
+                        .on_menu_event(|app, event| match event.id.as_ref() {
+                            "show" => commands::main_window::show_main_window(app),
+                            "quit" => {
+                                // 退出前显式保存窗口状态（插件在应用退出时也会自动保存）
+                                use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+                                let _ = app.save_window_state(
+                                    StateFlags::all()
+                                        & !StateFlags::VISIBLE
+                                        & !StateFlags::DECORATIONS,
+                                );
+                                app.exit(0);
+                            }
+                            _ => {}
+                        })
+                        .on_tray_icon_event(|tray, event| {
+                            // 左键单击按可见性 toggle：隐藏 → 显示并聚焦；可见 → 隐藏。
+                            // 不能用 is_focused 参与判断：点击托盘时窗口已先失焦，恒走显示分支。
+                            if let TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            } = event
+                            {
+                                let app = tray.app_handle();
+                                if let Some(w) = app.get_webview_window("main") {
+                                    if w.is_visible().unwrap_or(false) {
+                                        commands::main_window::hide_main_window(app);
+                                    } else {
+                                        commands::main_window::show_main_window(app);
+                                    }
                                 }
                             }
-                        }
-                    })
-                    .build(app)?;
+                        })
+                        .build(app)?;
+                } else {
+                    log_info!("DNOTE_NO_TRAY 已设置：本次不创建托盘图标");
+                }
             }
 
             // 主窗口配置为 visible:false（避免几何恢复前的尺寸闪变），此处亮相

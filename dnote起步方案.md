@@ -157,11 +157,11 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 
 - `tauri.conf.json`：`productName: "dnote"`、`version: "../package.json"`、`identifier: "com.dnote.perphyyoung"`、`removeUnusedCommands: true`、`bundle.targets: ["nsis"]`、`build.windows.staticVCRuntime: true`；CSP/devCsp 抄 cdown（去掉 `asset:` 相关指令，`devCsp` 放开 `ws://localhost:1420`）。
 - `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:window:allow-set-always-on-top`、`core:event:allow-listen`、`core:event:allow-unlisten`；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
-- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
+- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）、`DNOTE_NO_TRAY`（存在且非空则不建托盘图标，e2e 的 `launchApp` 会注入；窗口与任务栏图标照旧）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
 - vite：端口 `1420` + `strictPort`、`@` → `src`、`define.__APP_VERSION__`、`server.watch.ignored` 用**白名单**（仅 `index.html` + `src/` + `public/`，抄 cdown/paim）。
 - `.gitignore`：根放 `dnote-data*/`、`temp/`、`tmp-*`、`target/`、`node_modules/`、`dist/`、`*.log`；`src-tauri/.gitignore` 放 `/target/`、`/gen/schemas`。`Cargo.lock` 与 `src/bindings.ts` **入库**。
 - 图标：`scripts/gen-icon.mjs` 自研生成（风格抄 cdown 同名脚本）——1024×1024 深色圆角方块 + 三行笔记 + 一行被拖起的红行与 2×3 把手，内容就是「draggable note」；用法 `node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物 `icon.png` 同时拷成 `public/icon.png` 作 favicon。`app-icon.png` 是可再生的中间产物，不入库。
-- **dev 图标**：`scripts/gen-dev-icon.mjs` 生成通用的「红底圆角 + 白色大写 `DEV`」图标，dev（含 e2e）的**托盘与任务栏共用**它，release 用应用自身图标 —— dev 与 release 常同机并跑，图标不同才能一眼认出谁是谁。两点刻意设计：
+- **dev 图标**：`scripts/gen-dev-icon.mjs` 生成通用的「红底圆角 + 白色大写 `DEV`」图标，dev 的**托盘与任务栏共用**它（e2e 不建托盘，见 §8 的 `DNOTE_NO_TRAY`），release 用应用自身图标 —— dev 与 release 常同机并跑，图标不同才能一眼认出谁是谁。两点刻意设计：
   - **与项目无关、零依赖、可整段复制**：脚本不引用项目任何东西（`--size` / `--text` / `--fg` / `--bg` 全可覆盖），配套 Rust 样板 `infra/tray.rs` 与产物 `src-tauri/icons/tray-dev.rgba` 一起拷到别的 Tauri 项目即可用。
   - **裸 RGBA + `Image::new`，不新增任何 Cargo feature**：产物就是 `Image::new(rgba, w, h)` 要的格式（官方对 `.ico` 也是构建期解码成裸 RGBA，见 `CachedIcon`），因此不需要 `image-png` / `image-ico` 这类运行期解码器。`tray.rs` 里用 `const _: () = assert!(...)` 钉住「字节数 = 边长²×4」，脚本改了尺寸而 Rust 没跟就会编译失败。
   - 尺寸 128×128（托盘实际只按 16–24px 渲染）；脚本额外写两张不入库的预览图（`.png` 与 `@16.png`），后者按 16px 直接渲染，用来预判任务栏里的实际观感。
@@ -172,7 +172,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 2. **Rust 骨架**：`lib.rs`（`specta_builder()` + 两条导出路径 + 单实例注册（仅 release 构建））、`infra/store.rs`（文本行读 + 原子写 + 数据目录）、`infra/logging.rs`（文件日志）、`commands/notes.rs`（2 条命令），配 `store.test.rs`（多行往返、空行与末尾空行往返、`\r\n` 兼容、空文件）。
 3. **配置**：`tauri.conf.json`（含深色主题与窗口底色）+ `capabilities/default.json` + 图标（`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`）+ dev 图标（`node scripts/gen-dev-icon.mjs`）。
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
-5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
+5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
 7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
@@ -188,7 +188,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
-9. **dev 用通用「DEV」图标**（`scripts/gen-dev-icon.mjs` 生成）：不绑定本项目、可整段复制到别的项目；托盘与任务栏保持一致，release 才用应用自身图标。
+9. **dev 用通用「DEV」图标**（`scripts/gen-dev-icon.mjs` 生成）：不绑定本项目、可整段复制到别的项目；托盘与任务栏保持一致，release 才用应用自身图标。**e2e 不建托盘**（`DNOTE_NO_TRAY`），任务栏保留。
 9. **多行粘贴必须拆行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。
 10. **多行选择与多行复制**（单行内保持原生选择；多行自己实现行选区，Ctrl+C 写 `\n` 连接的多行文本）。
 11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。

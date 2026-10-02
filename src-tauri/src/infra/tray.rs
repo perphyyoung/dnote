@@ -17,6 +17,16 @@ const DEV_ICON_SIZE: u32 = 128;
 // 编译期挡住「脚本改了尺寸/参数但 Rust 没跟着改」
 const _: () = assert!(DEV_ICON_RGBA.len() == (DEV_ICON_SIZE * DEV_ICON_SIZE * 4) as usize);
 
+/// 本次是否创建托盘图标：`DNOTE_NO_TRAY`（存在且非空）时禁用 —— 供 e2e 这类无人值守、且会
+/// 并发起多个实例的场景用：否则系统托盘会被一串 DEV 图标塞满，也没人会去点它。
+/// 变量不存在、或存在但为空值，都算启用（与 `store::data_dir` 对 `DNOTE_DATA_DIR` 的口径一致）。
+pub fn enabled() -> bool {
+    match std::env::var("DNOTE_NO_TRAY") {
+        Ok(v) => v.is_empty(),
+        Err(_) => true,
+    }
+}
+
 /// 托盘与任务栏共用的图标。
 pub fn icon(app: &AppHandle) -> Image<'_> {
     if cfg!(debug_assertions) {
