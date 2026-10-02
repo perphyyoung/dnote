@@ -177,6 +177,44 @@ test.describe("拖拽调整行序", () => {
     expect(await editorText(page)).toBe(moved);
   });
 
+  test("落点插入线画在幽灵行之上：两者压在同一条带时，线仍露在最上面", async ({ page }) => {
+    // 幽灵行是**整条通宽 + 实色**，而插入线总落在它那 28px 带里（它画的就是指针所在行的上/下边界）
+    // —— 于是"线被挡住"是系统性的，不是偶尔撞上。这条用例盯的就是这个层序（见 design.md「叠层」）。
+    await dragLineWith(page, 0, 2, async () => {
+      const line = page.locator("[data-insert-line]");
+      await expect(line).toBeVisible();
+      const lineBox = await line.boundingBox();
+      const ghostBox = await page.locator("[data-drag-ghost]").boundingBox();
+      if (!lineBox || !ghostBox) throw new Error("取不到插入线或幽灵行");
+
+      // 前提：插入线确实压进了幽灵行那一条带 —— 没有这个前提，下面那条断言就是"白过"
+      const top = Math.max(ghostBox.y, lineBox.y);
+      const bottom = Math.min(ghostBox.y + ghostBox.height, lineBox.y + lineBox.height);
+      expect(bottom - top).toBeGreaterThan(0);
+
+      // 判据：读**真实绘制顺序**。两者都是 `pointer-events:none`，命中测试会跳过它们，所以先临时
+      // 打开（只为读序，读完立刻还原），再取重叠带中点看 `elementsFromPoint` 的先后 —— 顺序即画序。
+      // 不用"比较 z-index"来替代：线要是被塞回 z-20 那层里、只是自己写着 z-[60]，z 看着更大，画序却是错的。
+      const order = await page.evaluate(
+        ({ x, y }) => {
+          const lineEl = document.querySelector("[data-insert-line]");
+          const ghostEl = document.querySelector("[data-drag-ghost]");
+          if (!lineEl || !ghostEl) return null;
+          for (const el of [lineEl, ghostEl]) (el as HTMLElement).style.pointerEvents = "auto";
+          const hits = document.elementsFromPoint(x, y);
+          for (const el of [lineEl, ghostEl]) (el as HTMLElement).style.pointerEvents = "";
+          return { line: hits.indexOf(lineEl), ghost: hits.indexOf(ghostEl) };
+        },
+        { x: lineBox.x + lineBox.width / 2, y: (top + bottom) / 2 },
+      );
+
+      expect(order).not.toBeNull();
+      expect(order?.line).toBeGreaterThanOrEqual(0); // 线画在了这点上
+      expect(order?.ghost).toBeGreaterThanOrEqual(0); // 这点上确实还叠着幽灵行（前提成立）
+      expect(order?.line).toBeLessThan(order?.ghost ?? -1); // 线在它之上
+    });
+  });
+
   test("拖动中不动内容，松手才换位并落盘", async ({ page, app }) => {
     await dragLineWith(page, 0, 2, async () => {
       // 此刻指针已到落点、还没松手。停住 500ms（超过 400ms 落盘防抖）：

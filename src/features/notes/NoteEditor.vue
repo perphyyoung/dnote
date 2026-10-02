@@ -548,8 +548,9 @@ function flashDropped(index: number): void {
       />
     </div>
 
-    <!-- 行手柄层 / 行操作按钮层：压在文字**之上**（按钮要可点、落点要显眼）。整层
-         pointer-events:none，只有手柄与按钮自己可点 —— 别挡住 textarea 的点击与落光标。 -->
+    <!-- 行手柄层 / 行操作按钮层 / 源行罩 / 落点闪：压在文字**之上**（按钮要可点）。
+         整层 pointer-events:none，只有手柄与按钮自己可点 —— 别挡住 textarea 的点击与落光标。
+         插入线**不在**这一层：它得压过幽灵行，单独开了 z-[60] 的层（见下）。 -->
     <div
       class="pointer-events-none absolute inset-x-0 top-0 z-20"
       :style="{ height: `${editorHeight}px` }"
@@ -570,17 +571,6 @@ function flashDropped(index: number): void {
         v-if="droppedIndex !== null"
         class="drop-flash absolute inset-x-0 bg-sky-400/20"
         :style="{ top: `${boxTop(droppedIndex)}px`, height: `${boxHeight(droppedIndex)}px` }"
-      />
-      <!-- 插入线：画在哪就插在哪 -->
-      <div
-        v-if="showInsertLine"
-        class="absolute bg-sky-400/70"
-        :style="{
-          top: `${insertLineTop(drag?.insert ?? 0) - 1}px`,
-          left: `${HANDLE_W}px`,
-          right: '6px',
-          height: '2px',
-        }"
       />
       <!-- 续行拐弯箭头：折行的行，**每个续行前**都常显一个 ↳（常显，不跟悬停走）。
            它与手柄共用左侧槽那一格：同宽（HANDLE_W）+ 水平居中 → 两个标记落在**同一条竖中线**上
@@ -689,6 +679,28 @@ function flashDropped(index: number): void {
       </div>
     </div>
 
+    <!-- 插入线：**单独一层、z 高过幽灵行（50）** —— 幽灵行是整条通宽实色、又总压在这一条 28px
+         带里，插入线留在上面那个 z-20 层里就会被它盖掉，落点等于看不见（见 design.md「叠层」）。
+         两个要点：① 必须**挪出** z-20 那一层 —— 在它的上下文里给孩子写多大的 z 都出不来；
+         ② 层仍在 scroller 内，所以坐标照旧是内容坐标，滚动与自动滚动都不需要额外处理。 -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 z-[60]"
+      :style="{ height: `${editorHeight}px` }"
+    >
+      <!-- 画在哪就插在哪：圆头 + 实色 + 一点外发光，抢注意力 -->
+      <div
+        v-if="showInsertLine"
+        data-insert-line
+        class="absolute rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.55)]"
+        :style="{
+          top: `${insertLineTop(drag?.insert ?? 0) - 1}px`,
+          left: `${HANDLE_W}px`,
+          right: '6px',
+          height: '2px',
+        }"
+      />
+    </div>
+
     <!-- 无边框 textarea：编辑语义全交给浏览器 —— 回车在光标处断行（行首回车即在当前位置
          插入新行）、退格 / 删除把相邻两行合并、↑↓ 在行间移动、Ctrl+A / Ctrl+Z / 多行选区
          都是原生的。**长行按右边界折行**（`pre-wrap` + `break-words`）：折行只影响排版，
@@ -737,10 +749,13 @@ function flashDropped(index: number): void {
     </div>
   </div>
 
-  <!-- 幽灵行：正被拿着的那一行本身，跟手贴着指针（fixed 定位，不参与文本流） -->
+  <!-- 幽灵行：正被拿着的那一行本身，跟手贴着指针（fixed 定位，不参与文本流）。
+       底色用**颜色 alpha**（不是 `opacity-*`）留 10% 透光：只为看清下面那一行的字、好判断落点，
+       文字与描边保持实心；插入线的可见性由它自己的 z-[60] 层保证，不靠这里透出来（见 design.md「叠层」）。 -->
   <div
     v-if="drag"
-    class="pointer-events-none fixed z-50 flex items-center rounded bg-slate-800 shadow-lg ring-1 ring-slate-700"
+    data-drag-ghost
+    class="pointer-events-none fixed z-50 flex items-center rounded bg-slate-800/90 shadow-xl ring-1 ring-slate-700"
     :style="{
       top: `${drag.pointerY - drag.grabOffset}px`,
       left: `${drag.ghostLeft}px`,
@@ -754,7 +769,7 @@ function flashDropped(index: number): void {
     >
       ⠿
     </span>
-    <span class="min-w-0 flex-1 truncate px-1 text-sm text-slate-200">
+    <span class="min-w-0 flex-1 truncate px-1 text-sm text-slate-100">
       {{ lines[drag.originIndex] ?? "" }}
     </span>
   </div>
