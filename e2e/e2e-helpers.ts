@@ -335,14 +335,25 @@ export function readClipboard(): string {
 }
 
 /// 按住第 from 行的手柄，把它拖到第 to 行。
-/// 必须分步移动：一步跳到目标不会产生中间的 pointermove，而位移正是换位的依据（见 logic.dropIndex）。
-export async function dragLine(page: Page, from: number, to: number): Promise<void> {
+/// 必须分步移动：一步跳到目标不会产生中间的 pointermove，而指针位置正是落点的依据。
+export function dragLine(page: Page, from: number, to: number): Promise<void> {
+  return dragLineWith(page, from, to, async () => {});
+}
+
+/// 分步拖拽：按下 → 移到第 to 行 → 调用 `during`（此刻**还没松手**，可以断言拖动中的状态）→ 松手。
+export async function dragLineWith(
+  page: Page,
+  from: number,
+  to: number,
+  during: () => Promise<void>,
+): Promise<void> {
   const a = await lineHandles(page).nth(from).boundingBox();
   const b = await lineHandles(page).nth(to).boundingBox();
   if (!a || !b) throw new Error(`取不到第 ${from} / ${to} 行的手柄位置`);
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
   await page.mouse.down();
   await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+  await during();
   await page.mouse.up();
 }
 
@@ -370,7 +381,7 @@ function decodeLines(raw: string): string[] {
 }
 
 /// 读落盘的行；文件不存在视为空列表
-function readPersistedLines(dataDir: string): string[] {
+export function readPersistedLines(dataDir: string): string[] {
   const file = path.join(dataDir, "dnote.txt");
   if (!fs.existsSync(file)) return [];
   return decodeLines(fs.readFileSync(file, "utf8"));

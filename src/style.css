@@ -26,6 +26,19 @@ body.dragging {
   cursor: grabbing;
 }
 
+/* 松手后的落点闪现：亮一下再淡出，给「落在这儿了」一个收尾（NoteEditor 里挂 240ms 后移除） */
+@keyframes dnote-drop-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.drop-flash {
+  animation: dnote-drop-flash 220ms ease-out forwards;
+}
+
 /* 细滚动条：行数超出窗口时降噪 */
 *::-webkit-scrollbar {
   width: 8px;

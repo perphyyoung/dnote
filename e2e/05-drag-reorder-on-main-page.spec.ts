@@ -8,7 +8,15 @@
  * 必须在松手那一刻落盘。
  */
 import { expect } from "@playwright/test";
-import { dragLine, editorText, expectPersistedLines, seedLines, test } from "./e2e-helpers";
+import {
+  dragLine,
+  dragLineWith,
+  editorText,
+  expectPersistedLines,
+  readPersistedLines,
+  seedLines,
+  test,
+} from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
 const LINES = ["第一行", "第二行", "第三行"];
@@ -36,11 +44,24 @@ test.describe("拖拽调整行序", () => {
   });
 
   test("拖到半行以内不换位（阈值）", async ({ page, app }) => {
-    // 只移动小于半行高的距离：dropIndex 四舍五入后仍落在原下标
+    // 只移动小于半行高的距离：指针仍在原来那一行，插入位等于「没动」
     await dragLineWithinHalfRow(page);
 
     expect(await editorText(page)).toBe(LINES.join("\n"));
     await expectPersistedLines(app.dataDir, LINES);
+  });
+
+  test("拖动中不动内容，松手才换位并落盘", async ({ page, app }) => {
+    await dragLineWith(page, 0, 2, async () => {
+      // 此刻指针已到落点、还没松手。停住 500ms（超过 400ms 落盘防抖）：
+      // 若实现是「边拖边改文本 / 边落盘」，这两条断言立刻会抓到。
+      await page.waitForTimeout(500);
+      expect(await editorText(page)).toBe(LINES.join("\n"));
+      expect(readPersistedLines(app.dataDir)).toEqual(LINES);
+    });
+
+    expect(await editorText(page)).toBe("第二行\n第三行\n第一行");
+    await expectPersistedLines(app.dataDir, ["第二行", "第三行", "第一行"]);
   });
 });
 

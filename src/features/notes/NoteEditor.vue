@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { dropIndex, moveItem } from "@/features/notes/logic";
+import { insertIndexAt, moveItem } from "@/features/notes/logic";
 import {
   flushNow,
   registerEditor,
@@ -18,25 +18,57 @@ const PAD_TOP = 8;
 /** 底部多留一条滚动条的高度：长行横向滚动时，别让滚动条盖住最后一行 */
 const PAD_BOTTOM = 16;
 const HANDLE_W = 20;
+/** 指针离容器上下边缘多近就开始自动滚动，以及滚动速度（分母越小越快） */
+const SCROLL_EDGE = 24;
+const SCROLL_DAMPING = 3;
 
 const scroller = ref<HTMLDivElement | null>(null);
 const editor = ref<HTMLTextAreaElement | null>(null);
 /** 指针当前停在第几行：只让这一行的手柄显形，界面保持安静 */
 const hoverIndex = ref<number | null>(null);
-const draggingIndex = ref<number | null>(null);
 
-/** 高度按行数算出来（不靠内部滚动），滚动交给外层容器 —— 手柄层才能跟着一起滚 */
+/** 松手后落点闪一下给个「落在这儿了」的收尾 */
+const droppedIndex = ref<number | null>(null);
+let dropTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 拖拽会话。**拖动期间一个字符都不改**：只按指针画幽灵行与插入线，松手那一下才真正重排并落盘。
+ * 这样文字不会跳变、光标与撤销栈不受影响 —— 旧实现每次换位都重写 textarea 的值，
+ * 正是「拖起来很突兀」的根因（见 `开发经验.md`）。
+ */
+const drag = ref<{
+  originIndex: number;
+  /** 抓取点在行内的偏移：幽灵行按它贴在指针下，捏哪儿就在哪儿 */
+  grabOffset: number;
+  /** 指针的视口 Y：自动滚动后也拿它重算落点 */
+  pointerY: number;
+  /** 插入位 0..行数 */
+  insert: number;
+  /** 幽灵行的视口左边界与宽度（开始时量一次，拖动中不会变） */
+  ghostLeft: number;
+  ghostWidth: number;
+} | null>(null);
+
 const editorHeight = computed(() => PAD_TOP + PAD_BOTTOM + lines.value.length * ROW_H);
+
+/** 插入线只在真会换位时出现：插回自己的上边或下边都等于没动 */
+const showInsertLine = computed(() => {
+  const d = drag.value;
+  return d !== null && d.insert !== d.originIndex && d.insert !== d.originIndex + 1;
+});
 
 onMounted(() => registerEditor(editor.value));
 
 onUnmounted(() => {
   registerEditor(null);
+  stopAutoScroll();
+  if (dropTimer !== null) clearTimeout(dropTimer);
   document.body.classList.remove("dragging");
 });
 
+// ── 悬停：只决定哪个手柄显形 ────────────────────────────────────────────────
 function onHover(e: PointerEvent): void {
-  if (drag !== null) return; // 拖动中行序一直在变，别让手柄跟着闪
+  if (drag.value !== null) return; // 拖动中由被拖行自己决定显形，别让手柄跟着闪
   const el = scroller.value;
   if (!el) return;
   const rect = el.getBoundingClientRect();
@@ -45,37 +77,109 @@ function onHover(e: PointerEvent): void {
 }
 
 // ── 拖拽调序 ────────────────────────────────────────────────────────────────
-/**
- * 拖拽会话。基准（originIndex / startY）固定在按下那一刻：拖拽中内容会被实时重排，
- * 若拿「当前下标」当基准会累积误差、来回拖不可逆（纯函数 dropIndex 的基准语义，见 logic.ts）。
- */
-let drag: { originIndex: number; startY: number; currentIndex: number } | null = null;
-
 function onHandleDown(e: PointerEvent, index: number): void {
   if (e.button !== 0) return;
-  // 抓住指针：拖到列表外也能继续收到 move / up
+  const el = scroller.value;
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const rowTop = rect.top - el.scrollTop + PAD_TOP + index * ROW_H;
+  // 抓住指针：拖到编辑器外也能继续收到 move / up
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  drag = { originIndex: index, startY: e.clientY, currentIndex: index };
-  draggingIndex.value = index;
+  drag.value = {
+    originIndex: index,
+    grabOffset: Math.min(Math.max(e.clientY - rowTop, 0), ROW_H),
+    pointerY: e.clientY,
+    insert: index,
+    ghostLeft: rect.left,
+    ghostWidth: rect.width,
+  };
+  updateFromPointer(e.clientY);
   document.body.classList.add("dragging");
+  startAutoScroll();
 }
 
 function onHandleMove(e: PointerEvent): void {
-  if (!drag) return;
-  const to = dropIndex(e.clientY, drag.startY, ROW_H, drag.originIndex, lines.value.length);
-  if (to === drag.currentIndex) return;
-  // 本地立即重排（乐观更新）：被拖的那行跟着指针走；松手时才落盘
-  setLines(moveItem(lines.value, drag.currentIndex, to));
-  drag.currentIndex = to;
-  draggingIndex.value = to;
+  if (drag.value === null) return;
+  updateFromPointer(e.clientY);
 }
 
 function onHandleUp(): void {
-  if (!drag) return;
-  drag = null;
-  draggingIndex.value = null;
+  const d = drag.value;
+  if (d === null) return;
+  drag.value = null;
+  stopAutoScroll();
   document.body.classList.remove("dragging");
+  // 插回原位（自己的上边或下边）等于没动：不写盘也不闪
+  if (d.insert === d.originIndex || d.insert === d.originIndex + 1) return;
+  // 插入位是「移除之前」的下标：往后拖时要减一
+  const to = d.insert > d.originIndex ? d.insert - 1 : d.insert;
+  setLines(moveItem(lines.value, d.originIndex, to));
   flushNow();
+  flashDropped(to);
+}
+
+/** 系统取消（触摸被打断等）：整段丢弃，内容一个字都不改 */
+function onHandleCancel(): void {
+  if (drag.value === null) return;
+  drag.value = null;
+  stopAutoScroll();
+  document.body.classList.remove("dragging");
+}
+
+/** 指针位置 → 插入位。插入线因此永远「画在哪就插在哪」，来回拖也不会累积误差 */
+function updateFromPointer(pointerY: number): void {
+  const d = drag.value;
+  const el = scroller.value;
+  if (!d || !el) return;
+  const rect = el.getBoundingClientRect();
+  const listTop = rect.top - el.scrollTop + PAD_TOP;
+  d.pointerY = pointerY;
+  d.insert = insertIndexAt(pointerY, listTop, ROW_H, lines.value.length, d.originIndex);
+}
+
+// ── 拖到边缘自动滚动（长笔记必需，否则拖不到窗口外的行）────────────────────
+let raf = 0;
+
+function startAutoScroll(): void {
+  if (raf !== 0) return;
+  raf = requestAnimationFrame(autoScrollTick);
+}
+
+function stopAutoScroll(): void {
+  if (raf === 0) return;
+  cancelAnimationFrame(raf);
+  raf = 0;
+}
+
+function autoScrollTick(): void {
+  const d = drag.value;
+  const el = scroller.value;
+  if (!d || !el) {
+    raf = 0;
+    return;
+  }
+  const rect = el.getBoundingClientRect();
+  let delta = 0;
+  if (d.pointerY < rect.top + SCROLL_EDGE) {
+    delta = -Math.ceil((rect.top + SCROLL_EDGE - d.pointerY) / SCROLL_DAMPING);
+  } else if (d.pointerY > rect.bottom - SCROLL_EDGE) {
+    delta = Math.ceil((d.pointerY - (rect.bottom - SCROLL_EDGE)) / SCROLL_DAMPING);
+  }
+  if (delta !== 0) {
+    const before = el.scrollTop;
+    el.scrollTop = before + delta;
+    if (el.scrollTop !== before) updateFromPointer(d.pointerY); // 滚动后文本位置变了，落点要重算
+  }
+  raf = requestAnimationFrame(autoScrollTick);
+}
+
+function flashDropped(index: number): void {
+  droppedIndex.value = index;
+  if (dropTimer !== null) clearTimeout(dropTimer);
+  dropTimer = setTimeout(() => {
+    dropTimer = null;
+    droppedIndex.value = null;
+  }, 240);
 }
 </script>
 
@@ -92,18 +196,35 @@ function onHandleUp(): void {
       class="pointer-events-none absolute inset-x-0 top-0"
       :style="{ height: `${editorHeight}px` }"
     >
-      <!-- 拖拽中：给被拖行当前落点铺一条高亮（半透明，压在文字上方也看得清） -->
+      <!-- 被拿起来的那一行：原地留个低对比标记 -->
       <div
-        v-if="draggingIndex !== null"
-        class="absolute inset-x-0 bg-slate-800/60"
-        :style="{ top: `${PAD_TOP + draggingIndex * ROW_H}px`, height: `${ROW_H}px` }"
+        v-if="drag"
+        class="absolute inset-x-0 bg-slate-800/40"
+        :style="{ top: `${PAD_TOP + drag.originIndex * ROW_H}px`, height: `${ROW_H}px` }"
+      />
+      <!-- 松手落点闪一下（220ms 淡出） -->
+      <div
+        v-if="droppedIndex !== null"
+        class="drop-flash absolute inset-x-0 bg-sky-400/20"
+        :style="{ top: `${PAD_TOP + droppedIndex * ROW_H}px`, height: `${ROW_H}px` }"
+      />
+      <!-- 插入线：画在哪就插在哪 -->
+      <div
+        v-if="showInsertLine"
+        class="absolute bg-sky-400/70"
+        :style="{
+          top: `${PAD_TOP + (drag?.insert ?? 0) * ROW_H - 1}px`,
+          left: `${HANDLE_W}px`,
+          right: '6px',
+          height: '2px',
+        }"
       />
       <button
         v-for="(_, index) in lines"
         :key="index"
         type="button"
         class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center text-slate-600 transition-opacity active:cursor-grabbing"
-        :class="index === hoverIndex || index === draggingIndex ? 'opacity-100' : 'opacity-0'"
+        :class="index === hoverIndex || index === drag?.originIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
           top: `${PAD_TOP + index * ROW_H}px`,
           height: `${ROW_H}px`,
@@ -114,7 +235,7 @@ function onHandleUp(): void {
         @pointerdown="onHandleDown($event, index)"
         @pointermove="onHandleMove"
         @pointerup="onHandleUp"
-        @pointercancel="onHandleUp"
+        @pointercancel="onHandleCancel"
       >
         ⠿
       </button>
@@ -139,5 +260,27 @@ function onHandleUp(): void {
       @input="setContent(($event.target as HTMLTextAreaElement).value)"
       @blur="flushNow"
     />
+  </div>
+
+  <!-- 幽灵行：正被拿着的那一行本身，跟手贴着指针（fixed 定位，不参与文本流） -->
+  <div
+    v-if="drag"
+    class="pointer-events-none fixed z-50 flex items-center rounded bg-slate-800 shadow-lg ring-1 ring-slate-700"
+    :style="{
+      top: `${drag.pointerY - drag.grabOffset}px`,
+      left: `${drag.ghostLeft}px`,
+      width: `${drag.ghostWidth}px`,
+      height: `${ROW_H}px`,
+    }"
+  >
+    <span
+      class="flex shrink-0 justify-center text-slate-500"
+      :style="{ width: `${HANDLE_W + 2}px` }"
+    >
+      ⠿
+    </span>
+    <span class="min-w-0 flex-1 truncate px-1 text-sm text-slate-200">
+      {{ lines[drag.originIndex] ?? "" }}
+    </span>
   </div>
 </template>

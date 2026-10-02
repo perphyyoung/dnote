@@ -20,21 +20,24 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 /**
- * 由拖拽位移换算目标行下标。
+ * 由指针位置换算**插入位**（0..行数）。
  *
- * 行高统一，位移每满一行高就跨一行（四舍五入，半行即换位）。
- * `originIndex` 是**拖拽开始时**的下标：拖拽过程中列表会被实时重排，
- * 若用「当前下标」当基准，来回拖动会累积误差，所以基准必须固定。
+ * 规则是「行优先 + 看方向」，与人把文件拖进文件夹的直觉一致：
+ * - 指针落在第 i 行，且**从上往下**拖（i ≥ originIndex）→ 插到它下面（i + 1）；
+ * - 指针落在第 i 行，且**从下往上**拖（i < originIndex）→ 插到它上面（i）。
+ *
+ * 于是「拖到哪一行的位置，就放到那一行」；指针停在自己那一行时正好得到 origin + 1，
+ * 与「没动」等价（调用方据此不画插入线、不写盘）。指针拖到列表之外时钳制到两端，
+ * 所以拖出窗口也仍然落在首行之前 / 末行之后。
  */
-export function dropIndex(
+export function insertIndexAt(
   pointerY: number,
-  startY: number,
+  listTop: number,
   rowHeight: number,
-  originIndex: number,
   count: number,
+  originIndex: number,
 ): number {
-  if (count <= 0) return 0;
-  if (rowHeight <= 0) return clamp(originIndex, 0, count - 1);
-  const shifted = originIndex + Math.round((pointerY - startY) / rowHeight);
-  return clamp(shifted, 0, count - 1);
+  if (count <= 0 || rowHeight <= 0) return 0;
+  const row = clamp(Math.floor((pointerY - listTop) / rowHeight), 0, count - 1);
+  return row >= originIndex ? row + 1 : row;
 }

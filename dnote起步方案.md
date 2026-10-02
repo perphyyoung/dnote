@@ -95,8 +95,8 @@
 
 - 手柄按行铺在编辑器左侧、**只在该行被悬停时**显形（用指针 Y 换算行号）；整层 `pointer-events: none`，只有手柄可点，不挡 textarea 的点击与落光标。
 - 手柄上 `pointerdown` → `setPointerCapture(pointerId)`；行高与内边距与文本**共用同一套常量**（`NoteEditor.vue` 一处定义、textarea 用行内样式），手柄才与文本对齐。
-- 拖拽中：被拖行当前落点铺一条高亮，内容**实时重排**（乐观更新）；`pointerup` / `pointercancel` 时 `flushNow` 落盘。
-- 换位阈值是**半行高**（`dropIndex` 四舍五入）；拖拽期 `body.dragging` 关掉 `user-select`，手柄加 `touch-action: none`。
+- **拖动期间一个字符都不改**：只画跟手的幽灵行 + 插入线，源行原地留低对比标记；松手那一下才重排一次并 `flushNow` 落盘，落点闪 220ms 淡出（边拖边改文本会跳变、还会重置光标与撤销栈，见 `开发经验.md`）。
+- 落点是**插入位模型**（`insertIndexAt`：行优先 + 看方向），「线画在哪就插在哪」，来回拖不累积误差；指针进入容器上下边缘 24px 内自动滚动；拖拽期 `body.dragging` 关掉 `user-select`，手柄加 `touch-action: none`。
 
 ### 6.3 选择与复制：全部原生
 
@@ -108,7 +108,7 @@
 DOM 事件只负责喂参数，全部计算都是无 DOM 依赖的纯函数（编辑语义已由浏览器承担，所以只剩拖拽这两条）：
 
 - `moveItem<T>(list, from, to)` —— 移动元素，越界钳制。
-- `dropIndex(pointerY, startY, rowHeight, originIndex, count)` —— 由位移量换算目标行下标（基准固定在按下那一刻，实时重排才可逆）。
+- `insertIndexAt(pointerY, listTop, rowHeight, count, originIndex)` —— 由指针位置换算插入位（行优先 + 看方向；列表之外钳制到两端）。
 
 ## 7. 目录结构
 
@@ -189,5 +189,5 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
 9. **dev 用通用「DEV」图标**（`scripts/gen-dev-icon.mjs` 生成）：不绑定本项目、可整段复制到别的项目；托盘与任务栏保持一致，release 才用应用自身图标。**e2e 不建托盘**（`DNOTE_NO_TRAY`），任务栏保留。
-10. **编辑器是一个 `<textarea>`**（不是每行一个 `<input>`）：编辑语义全部用浏览器原生 —— 回车在光标处断行（**行首回车即在当前位置插入新行**）、退格 / `Delete` 合并相邻两行、`↑↓` 行间移动、多行选区与复制、`Ctrl+Z` 撤销；应用只接管拖拽行排序与落盘。代价是拖拽失去 FLIP 让位动画（见 `开发经验.md`）。
+10. **编辑器是一个 `<textarea>`**（不是每行一个 `<input>`）：编辑语义全部用浏览器原生 —— 回车在光标处断行（**行首回车即在当前位置插入新行**）、退格 / `Delete` 合并相邻两行、`↑↓` 行间移动、多行选区与复制、`Ctrl+Z` 撤销；应用只接管拖拽行排序与落盘。拖拽手感用「幽灵行 + 插入线 + 松手才换位」补回来（详见 `design.md` 与 `开发经验.md`）。
 11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。

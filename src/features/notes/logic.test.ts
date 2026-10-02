@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropIndex, moveItem } from "@/features/notes/logic";
+import { insertIndexAt, moveItem } from "@/features/notes/logic";
 
 describe("moveItem", () => {
   it("向后移动", () => {
@@ -34,40 +34,42 @@ describe("moveItem", () => {
   });
 });
 
-describe("dropIndex", () => {
-  it("位移不足半行时下标不变", () => {
-    expect(dropIndex(100, 100, 28, 2, 6)).toBe(2);
-    expect(dropIndex(112, 100, 28, 2, 6)).toBe(2); // 12px < 14px
+describe("insertIndexAt", () => {
+  // 三行摆在视口 Y = 100 起，每行 28px；插入位取值 0..3
+  const TOP = 100;
+  const H = 28;
+  const N = 3;
+  /// 第 row 行行内偏下一点的位置（行优先模型下，行内位置不影响结果）
+  const inRow = (row: number) => TOP + row * H + 20;
+
+  it("指针停在自己那一行 → 落在 origin + 1，等价于没动", () => {
+    for (let origin = 0; origin < N; origin += 1) {
+      expect(insertIndexAt(inRow(origin), TOP, H, N, origin)).toBe(origin + 1);
+    }
   });
 
-  it("位移满半行即换位，满一行高跨一行", () => {
-    expect(dropIndex(114, 100, 28, 2, 6)).toBe(3); // 14px = 0.5 行
-    expect(dropIndex(128, 100, 28, 2, 6)).toBe(3);
-    expect(dropIndex(156, 100, 28, 2, 6)).toBe(4);
+  it("往下拖：插到指针所在那一行的下面", () => {
+    expect(insertIndexAt(inRow(1), TOP, H, N, 0)).toBe(2);
+    expect(insertIndexAt(inRow(2), TOP, H, N, 0)).toBe(3);
   });
 
-  it("向上拖同样按行高换算", () => {
-    expect(dropIndex(72, 100, 28, 2, 6)).toBe(1);
-    expect(dropIndex(44, 100, 28, 2, 6)).toBe(0);
+  it("往上拖：插到指针所在那一行的上面", () => {
+    expect(insertIndexAt(inRow(0), TOP, H, N, 2)).toBe(0);
+    expect(insertIndexAt(inRow(1), TOP, H, N, 2)).toBe(1);
   });
 
-  it("基准是拖拽开始时的下标，来回拖动可逆", () => {
-    // 从 2 拖到 4 再拖回 2：同一指针位置必须得到同一下标
-    expect(dropIndex(100 + 2 * 28, 100, 28, 2, 6)).toBe(4);
-    expect(dropIndex(100, 100, 28, 2, 6)).toBe(2);
+  it("同一行：往下拖落到它之后，往上拖落到它之前", () => {
+    expect(insertIndexAt(inRow(1), TOP, H, N, 0)).toBe(2); // 0 → 2 - 1 = 1
+    expect(insertIndexAt(inRow(1), TOP, H, N, 2)).toBe(1); // 2 → 1
   });
 
-  it("两端钳制", () => {
-    expect(dropIndex(999, 100, 28, 0, 3)).toBe(2);
-    expect(dropIndex(-999, 100, 28, 2, 3)).toBe(0);
+  it("指针在列表之外钳制到两端（拖出窗口也落在首/末）", () => {
+    expect(insertIndexAt(-999, TOP, H, N, 2)).toBe(0);
+    expect(insertIndexAt(999, TOP, H, N, 0)).toBe(N); // 末尾 = 插到最后一行下面
   });
 
-  it("单行或空列表返回 0", () => {
-    expect(dropIndex(500, 0, 28, 0, 1)).toBe(0);
-    expect(dropIndex(500, 0, 28, 0, 0)).toBe(0);
-  });
-
-  it("行高为 0 时退化为原地不动", () => {
-    expect(dropIndex(500, 0, 0, 2, 6)).toBe(2);
+  it("空列表或行高非法返回 0", () => {
+    expect(insertIndexAt(500, TOP, H, 0, 0)).toBe(0);
+    expect(insertIndexAt(500, TOP, 0, N, 1)).toBe(0);
   });
 });
