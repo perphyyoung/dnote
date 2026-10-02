@@ -225,6 +225,18 @@ export function editorText(page: Page): Promise<string> {
   return editor(page).inputValue();
 }
 
+/// 镜像测层里每个逻辑行的视口矩形（渲染实测，不是前端算的）—— 折行相关用例靠它对齐几何
+export function mirrorBoxes(page: Page): Promise<{ top: number; height: number }[]> {
+  return page.evaluate(() => {
+    const mirror = document.querySelector("[data-mirror]");
+    if (!(mirror instanceof HTMLElement)) return [];
+    return Array.from(mirror.children, (child) => {
+      const rect = child.getBoundingClientRect();
+      return { top: rect.top, height: rect.height };
+    });
+  });
+}
+
 /// 把光标放到第 line 行（0 起）的 column 列。用来构造「行首回车」「多行选择」这类前置状态：
 /// 这些用例要的正是**光标位置**，而不只是焦点（原生行为按光标位置决定结果）。
 export function caretTo(page: Page, line: number, column = 0): Promise<void> {

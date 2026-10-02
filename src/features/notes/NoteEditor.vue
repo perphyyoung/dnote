@@ -22,6 +22,7 @@ const ROW_H = 28;
 const PAD_TOP = 8;
 /** 底部多留一条滚动条的高度：长行横向滚动时，别让滚动条盖住最后一行 */
 const PAD_BOTTOM = 16;
+// 左侧槽只放「续行拐弯箭头 + 拖拽手柄 ⠿」两样，所以回到最初那个宽度（行号已删）
 const HANDLE_W = 20;
 /** 指针离容器上下边缘多近就开始自动滚动，以及滚动速度（分母越小越快） */
 const SCROLL_EDGE = 24;
@@ -96,6 +97,27 @@ function boxHeight(index: number): number {
 function insertLineTop(index: number): number {
   return boxes.value[index]?.top ?? textBottom.value;
 }
+
+/** 第 index 行占几个视觉行：≥2 就是折行行（行盒高 = 视觉行数 × 行高） */
+function rowSpan(index: number): number {
+  return Math.max(1, Math.round(boxHeight(index) / ROW_H));
+}
+
+/**
+ * 「续行拐弯箭头」的位置：折行的行，**每个续行前**都常显一个 ↳（第 2..n 个视觉行）。
+ *
+ * 它负责说明「这几行是同一条笔记」；行号已经删掉（左侧槽只留拖拽手柄 + 这个箭头），
+ * 所以标记要落在每个续行上，不能只标第一个 —— 否则第 3 个视觉行起就看不出归属了（见 design.md）。
+ */
+const continuationArrowTops = computed(() => {
+  const tops: number[] = [];
+  for (let index = 0; index < lines.value.length; index += 1) {
+    for (let row = 1; row < rowSpan(index); row += 1) {
+      tops.push(boxTop(index) + row * ROW_H);
+    }
+  }
+  return tops;
+});
 
 /**
  * 读镜像测层的行盒。**文本或容器宽度一变就必须重测** —— 折行位置只由这两者决定。
@@ -532,10 +554,12 @@ function flashDropped(index: number): void {
       class="pointer-events-none absolute inset-x-0 top-0 z-20"
       :style="{ height: `${editorHeight}px` }"
     >
-      <!-- 被拿起来的那一行：**有意**做成盖在文字上的色罩（「这一行被搬走了」本该灰下去） -->
+      <!-- 被拿起来的那一行：**有意**做成盖在文字上的色罩（「这一行被搬走了」本该灰下去）；
+           再加虚线上下沿，让「搬走的是这一整块」有明确起止（折行块可以很高，只靠色罩边界发虚） -->
       <div
         v-if="drag"
-        class="absolute inset-x-0 bg-slate-800/40"
+        data-drag-source
+        class="absolute inset-x-0 border-y border-dashed border-slate-600/70 bg-slate-800/40"
         :style="{
           top: `${boxTop(drag.originIndex)}px`,
           height: `${boxHeight(drag.originIndex)}px`,
@@ -558,6 +582,29 @@ function flashDropped(index: number): void {
           height: '2px',
         }"
       />
+      <!-- 续行拐弯箭头：折行的行，**每个续行前**都常显一个 ↳（常显，不跟悬停走）。
+           它与手柄共用左侧槽那一格：同宽（HANDLE_W）+ 水平居中 → 两个标记落在**同一条竖中线**上
+           （也就是「文字左缘与左边界」的中点）；而手柄只在逻辑行的首个视觉行、箭头只在续行，
+           两者永不同行，所以共用一条中线不会打架。 -->
+      <div
+        v-for="top in continuationArrowTops"
+        :key="top"
+        data-continuation-arrow
+        class="pointer-events-none absolute text-[10px] text-slate-200"
+        :style="{
+          top: `${top}px`,
+          left: '0px',
+          width: `${HANDLE_W}px`,
+          textAlign: 'center',
+          height: `${ROW_H}px`,
+          lineHeight: `${ROW_H}px`,
+        }"
+      >
+        ↳
+      </div>
+      <!-- 拖拽手柄：**只在逻辑行的首个视觉行**出现（折行块再高也只有一个手柄，不跟着变胖），
+           仍然是「指针停在这一行时才显形」。上一版的悬停行号已删 —— 左侧槽只留手柄与续行箭头，
+           视觉负担才是对的。 -->
       <button
         v-for="(_, index) in lines"
         :key="index"
@@ -566,7 +613,7 @@ function flashDropped(index: number): void {
         :class="index === hoverIndex || index === drag?.originIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
           top: `${boxTop(index)}px`,
-          height: `${boxHeight(index)}px`,
+          height: `${ROW_H}px`,
           width: `${HANDLE_W}px`,
         }"
         aria-label="拖拽调整顺序"

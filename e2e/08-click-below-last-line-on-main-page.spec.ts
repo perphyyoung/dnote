@@ -21,12 +21,14 @@ const LINES = ["第一行", "第二行", "第三行"];
 /// 三行笔记的文本长度（"第一行\n第二行\n第三行" = 3 + 1 + 3 + 1 + 3）
 const END = LINES.join("\n").length;
 
-/// 最后一行下沿之下 dy 像素处的一点：x 取文本区左侧一点，避开左侧手柄槽与右侧滚动条
-async function belowLastLine(page: Page, dy: number): Promise<{ x: number; y: number }> {
+/// 最后一行下沿之下 dy 像素处的一点：x 默认取文本左侧一点（避开手柄槽与右侧滚动条）。
+/// 注意 **y 决定落在哪一行，x 决定落在行内哪一列**：要断言"落文末"就得让 x 落在文字右侧
+/// （textarea 里那点底部留白是原生行为，比我们兜的容器空白区更"按 x 来"）。
+async function belowLastLine(page: Page, dy: number, dx = 60): Promise<{ x: number; y: number }> {
   const handle = await page.getByRole("button", { name: "拖拽调整顺序" }).last().boundingBox();
   if (!handle) throw new Error("取不到最后一行手柄");
   const left = await textareaLeft(page);
-  return { x: left + 60, y: handle.y + handle.height + dy };
+  return { x: left + dx, y: handle.y + handle.height + dy };
 }
 
 async function textareaLeft(page: Page): Promise<number> {
@@ -74,7 +76,8 @@ test.describe("点最后一行下方", () => {
 
   test("textarea 自己的底部留白仍走原生（也落文末），没有被兜底改坏", async ({ page, app }) => {
     await seedLines(app, page, LINES);
-    const { x, y } = await belowLastLine(page, 6); // 6px：还在 textarea 的 16px 底部留白里
+    // 6px：还在 textarea 的 16px 底部留白里；x 落到文字右侧，行内列才是"行尾"
+    const { x, y } = await belowLastLine(page, 6, 240);
     await page.mouse.click(x, y);
 
     expect(await activeTag(page)).toBe("TEXTAREA");

@@ -43,7 +43,7 @@
 - **dev 与 release 的图标不同**（两者常同机并跑）：dev 的托盘与任务栏用通用「红底白字 DEV」图标，release 用应用自身图标。资产与样板都项目无关、可整段复制：`scripts/gen-dev-icon.mjs` + `src-tauri/icons/tray-dev.rgba` + `infra/tray.rs`；改脚本的 `--size` 必须同步 `tray.rs` 的 `DEV_ICON_SIZE`（编译期断言会挡下不一致）。
 - **`DNOTE_NO_TRAY`（存在且非空）不建托盘**：e2e 会注入它（并行的每个实例都建托盘会塞满系统托盘）。窗口与任务栏图标照旧；**e2e 用例不要点 header 的 `-` 隐藏** —— 没有托盘就再没有唤回入口。
 - **单实例只在 release 构建注册**：debug（`pnpm dev` / e2e）不抢锁，所以 `pnpm dev` 能与常驻的 release 实例并存，e2e 也能并行起多个实例。锁的键是 app identifier，细节与验证方法见 `开发经验.md`。
-- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（默认 **4 worker**；**每个 spec 文件一个实例**）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的编辑器 textbox、`拖拽调整顺序` 的行手柄按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**（现有：01 多行粘贴、02 多行选择与复制、03 置顶、04 回车断行、05 拖拽调序、06 编辑器快捷键、07 当前行行内操作、08 点最后一行下方、09 长行折行）；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
+- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（默认 **4 worker**；**每个 spec 文件一个实例**）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的编辑器 textbox、`拖拽调整顺序` 的行手柄按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**（现有：01 多行粘贴、02 多行选择与复制、03 置顶、04 回车断行、05 拖拽调序、06 编辑器快捷键、07 当前行行内操作、08 点最后一行下方、09 长行折行、10 折行的视觉反馈）；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
 - e2e 用例**必须从 `./e2e-helpers` 导入 `test`**（不是 `@playwright/test`）：那里挂了 auto 的 `testSection` fixture，会在 `dnote.log` 里为每个用例记「用例名 + 结果 + 耗时」两行分节日志，从别处导入就没有这层日志。`expect` 仍从 `@playwright/test` 导入。用例用 `app` / `page` 两个 fixture 拿实例与页面，不要自己 `beforeAll` 起进程。
 - e2e 里**动系统剪贴板的动作必须整段包在 `withClipboard()` 内**（含按键与读写两步）：剪贴板是整机唯一资源，并行 worker 会互相串内容，表现为偶发的「内容不对」（见 `开发经验.md`）。实例数据目录需预置时用 `seedLines(app, page, lines)`，不要自己在 spec 里拼路径。
 - 构建时打印的 `Removed unused commands from ...` 是 `build.removeUnusedCommands: true` 的正常输出，不是告警。

@@ -14,6 +14,7 @@ import {
   editorText,
   expectPersistedLines,
   lineHandles,
+  mirrorBoxes,
   seedLines,
   test,
 } from "./e2e-helpers";
@@ -31,18 +32,6 @@ const LONG =
   "再多写一点以免窗口很宽时反而不折行那样这条用例就白测了";
 
 const NOTE = ["第一行", LONG, "第三行"];
-
-/// 镜像测层里每个逻辑行的视口矩形（渲染实测，不是我们算的）
-async function mirrorBoxes(page: Page): Promise<{ top: number; height: number }[]> {
-  return page.evaluate(() => {
-    const mirror = document.querySelector("[data-mirror]");
-    if (!(mirror instanceof HTMLElement)) return [];
-    return Array.from(mirror.children, (child) => {
-      const rect = child.getBoundingClientRect();
-      return { top: rect.top, height: rect.height };
-    });
-  });
-}
 
 /// 镜像的内容总高必须等于 textarea 自己的内容高（`scrollHeight` 由浏览器排版得出）
 async function expectMirrorMatchesTextarea(page: Page): Promise<void> {
@@ -63,19 +52,16 @@ test.describe("长行折行后的排版几何", () => {
     await seedLines(app, page, NOTE);
   });
 
-  test("折行行的手柄撑满整块、字形竖直居中", async ({ page }) => {
+  test("折行行的手柄只在首个视觉行：一个行高、贴着块的上沿", async ({ page }) => {
     const boxes = await mirrorBoxes(page);
     expect(boxes).toHaveLength(3);
     expect(boxes[1].height).toBeGreaterThan(ROW_H * 1.5); // 前提：这一行确实折了
 
     const handle = await lineHandles(page).nth(1).boundingBox();
     if (!handle) throw new Error("取不到折行行的手柄");
-    // 手柄与行盒同高（不是固定一行高贴在块顶）
-    expect(Math.abs(handle.height - boxes[1].height)).toBeLessThanOrEqual(1);
-    // 字形在块的中线上（flex 居中 ⇒ 手柄盒中线 = 字形中线）
-    expect(
-      Math.abs(handle.y + handle.height / 2 - (boxes[1].top + boxes[1].height / 2)),
-    ).toBeLessThanOrEqual(1);
+    // 手柄只占一个行高（折行块再高也不跟着变胖，免得视觉负担），且贴在块的首个视觉行
+    expect(Math.abs(handle.height - ROW_H)).toBeLessThanOrEqual(1);
+    expect(Math.abs(handle.y - boxes[1].top)).toBeLessThanOrEqual(1);
   });
 
   test("悬停在折行块的下部，命中的仍是这一行（不是按均匀行高算飞了）", async ({ page }) => {
