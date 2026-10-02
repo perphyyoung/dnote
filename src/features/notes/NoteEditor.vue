@@ -359,20 +359,29 @@ function flashDropped(index: number): void {
     @pointermove="onHover"
     @pointerleave="hoverIndex = null"
   >
-    <!-- 行手柄层：absolute 子元素随滚动容器一起移动，所以手柄天然跟文本对齐。
-         整层 pointer-events:none，只有手柄自己可点 —— 别挡住 textarea 的点击与落光标。 -->
+    <!-- 背景装饰层：必须在 textarea **之下** —— 当前行高亮是「给这一行铺底色」，
+         而不是「给文字蒙一层灰」。画在文字之上的半透明色块会把文字一起压暗，
+         读起来像整行失焦（见 `开发经验.md`「高亮别盖在文字上」）。 -->
     <div
       class="pointer-events-none absolute inset-x-0 top-0"
       :style="{ height: `${editorHeight}px` }"
     >
-      <!-- 当前行（光标所在行）的高亮：随光标走，失焦即消失；比拖拽态淡一档以免看混 -->
+      <!-- 当前行（光标所在行）：左侧强调条 + 极淡底色；随光标走，失焦即消失 -->
       <div
         v-if="caretIndex !== null && drag === null"
-        class="absolute inset-x-0 bg-slate-800/40"
+        class="absolute inset-x-0 border-l-2 border-slate-500 bg-slate-800/40"
         :data-caret-line="caretIndex"
         :style="{ top: `${PAD_TOP + caretIndex * ROW_H}px`, height: `${ROW_H}px` }"
       />
-      <!-- 被拿起来的那一行：原地留个低对比标记 -->
+    </div>
+
+    <!-- 行手柄层 / 行操作按钮层：压在文字**之上**（按钮要可点、落点要显眼）。整层
+         pointer-events:none，只有手柄与按钮自己可点 —— 别挡住 textarea 的点击与落光标。 -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 z-20"
+      :style="{ height: `${editorHeight}px` }"
+    >
+      <!-- 被拿起来的那一行：**有意**做成盖在文字上的色罩（「这一行被搬走了」本该灰下去） -->
       <div
         v-if="drag"
         class="absolute inset-x-0 bg-slate-800/40"
@@ -476,10 +485,11 @@ function flashDropped(index: number): void {
 
     <!-- 无边框 textarea：编辑语义全交给浏览器 —— 回车在光标处断行（行首回车即在当前位置
          插入新行）、退格 / 删除把相邻两行合并、↑↓ 在行间移动、Ctrl+A / Ctrl+Z / 多行选区
-         都是原生的。wrap="off" + whitespace-pre：不折行，一条笔记一行，手柄才按行高对得齐。 -->
+         都是原生的。wrap="off" + whitespace-pre：不折行，一条笔记一行，手柄才按行高对得齐。
+         relative z-10：压在背景装饰层之上、又在手柄层之下，文字因此不会被高亮染色。 -->
     <textarea
       ref="editor"
-      class="block w-full resize-none overflow-x-auto overflow-y-hidden whitespace-pre border-0 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
+      class="relative z-10 block w-full resize-none overflow-x-auto overflow-y-hidden whitespace-pre border-0 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
       :style="{
         lineHeight: `${ROW_H}px`,
         height: `${editorHeight}px`,
