@@ -193,6 +193,30 @@ function updateFromPointer(pointerY: number): void {
  */
 let preEditCaret: number | null = null;
 
+/**
+ * 最近一次结构性编辑的前后对照，**只用来接管「重做」**。
+ *
+ * 为什么重做要自己接管：Chromium / WebView2 对「全选 + `insertText`（长且多行）」这一笔
+ * **撤销是对的、重做是错的** —— 重做时它按前后缀拼出的文本会丢内容（实测：74 字符 / 11 行的笔记
+ * 重做后整整少一行；短笔记与单行文本则正常）。试过的替代写法（最小替换区间、拆成多笔、先删后插、
+ * `execCommand("selectAll")`）在「无公共前后缀的长多行文本」上都不成立 —— 要么重做仍错，
+ * 要么一次 `Ctrl+Z` 退不干净。所以不再去猜哪种写法能绕开，改为：**重做时按同一份「编辑后文本」
+ * 再走一次 `applyEdit`**，于是重做结果恒等于首次编辑的结果，撤销继续交给浏览器原生。
+ *
+ * - `state`：`applied` = 浏览器撤销栈里这一笔还在（下次 `Ctrl+Z` 撤掉的就是它）；
+ *            `undone`  = 它已被撤销（下次 `Ctrl+Y` 该重做它 → 由我们接管）。
+ * - `depth`：它被撤掉之后又撤销了几笔别的编辑 —— 那几笔交给浏览器自己重做，退到 `depth === 0`
+ *            时才是我们这一笔。
+ * - 任何**不是我们发起**的输入（打字 / 粘贴 / 删除…）都让记录作废：用户已经离开这条历史了。
+ */
+let structural: {
+  after: string;
+  caretBefore: number;
+  caretAfter: number;
+  state: "applied" | "undone";
+  depth: number;
+} | null = null;
+
 /** 所有输入（含原生撤销 / 重做）都从这里进：更新内容，顺带修正撤销带出来的选区 */
 function onInput(e: Event): void {
   const el = e.target as HTMLTextAreaElement;
@@ -201,14 +225,28 @@ function onInput(e: Event): void {
     const caret = Math.min(preEditCaret ?? el.selectionStart, el.value.length);
     preEditCaret = null;
     el.setSelectionRange(caret, caret);
+    if (inputType === "historyUndo") {
+      if (structural?.state === "applied") {
+        // 撤销掉的正是我们那一笔：它的重做由我们接管
+        structural.state = "undone";
+        structural.depth = 0;
+      } else if (structural?.state === "undone") {
+        structural.depth += 1; // 又撤了一笔别的：我们那一笔在重做栈里更深了
+      }
+    } else if (structural?.state === "undone" && structural.depth > 0) {
+      structural.depth -= 1; // 浏览器重做的是别人那一笔
+    } else {
+      structural = null; // 浏览器把重做消化掉了（例如走了菜单重做）：记录不再可靠
+    }
   } else {
     preEditCaret = null; // 用户又打字了，上一次结构性编辑的位置不再适用
+    structural = null; // 且已经离开这条撤销历史
   }
   setContent(el.value);
 }
 
 /**
- * Ctrl+D 删除当前行；Alt+↑/↓ 上下移动当前行。
+ * Ctrl+D 删除当前行；Alt+↑/↓ 上下移动当前行；结构性编辑的 Ctrl+Y / Ctrl+Shift+Z 重做。
  *
  * 判定一律用 `e.code`（物理键位），不受输入法与键盘布局影响；**输入法组字中直接放行** ——
  * 那时的按键是在选字，不是在下命令（原生键位不需要这层判断，自研键位必须判）。
@@ -218,6 +256,17 @@ function onKeydown(e: KeyboardEvent): void {
   if ((e.ctrlKey || e.metaKey) && e.code === "KeyD") {
     e.preventDefault();
     deleteCurrentLine();
+    return;
+  }
+  // 重做：轮到我们那一笔时自己重放（浏览器的重做对「长多行的整篇替换」会丢内容，见 `structural`）。
+  // Chromium 里 Ctrl+Y 与 Ctrl+Shift+Z 都是重做键位，两个都得拦；没轮到我们时一律放行给浏览器。
+  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || (e.shiftKey && e.code === "KeyZ"))) {
+    if (structural?.state === "undone" && structural.depth === 0) {
+      e.preventDefault();
+      const { after, caretAfter, caretBefore } = structural;
+      applyEdit(after, caretAfter, caretBefore);
+      log.info("[notes] 重做结构性编辑（自接管，绕开 Chromium 重做的缺陷）");
+    }
     return;
   }
   if (e.altKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
@@ -308,6 +357,9 @@ function applyEdit(text: string, caret: number, from: number): void {
   }
   el.setSelectionRange(caret, caret);
   preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
+  // 记下这一笔「编辑后」的样子：用户撤销后再重做时，就按它重放一次（缘由见 `structural` 的注释）。
+  // 也必须放在 execCommand 之后 —— 那一步会同步触发 input，先写会被 onInput 清掉。
+  structural = { after: text, caretBefore: from, caretAfter: caret, state: "applied", depth: 0 };
   syncCaretLine(); // 程序化改光标不一定触发 selectionchange，这里补一次，当前行立刻跟上
   flushNow();
 }

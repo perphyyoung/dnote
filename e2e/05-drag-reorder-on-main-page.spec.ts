@@ -23,6 +23,24 @@ import { e2eLog } from "./e2e-logger";
 
 const LINES = ["第一行", "第二行", "第三行"];
 
+/// 长笔记（11 行 / 74 字符，首尾都有空行）：Chromium 的重做缺陷只在「长 + 多行」的整篇替换上出现，
+/// 短笔记（LINES 那三条）恰好落在正常的那一档 —— 两种规模都要有用例守着。
+const LONG_NOTE = [
+  "",
+  "横向滚动条",
+  "最大化",
+  "自适应宽高",
+  "自定义行颜色",
+  "ctrl+d 快捷键删除",
+  "alt+上下箭头 移动行",
+  "箭头位于行首时，直接在当前位置插入新行",
+  "置顶",
+  "",
+  "",
+];
+/// 把第 2 行（下标 1）拖到末尾后的行
+const LONG_MOVED = [LONG_NOTE[0], ...LONG_NOTE.slice(2, 10), LONG_NOTE[1], LONG_NOTE[10]];
+
 test.describe("拖拽调整行序", () => {
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
@@ -83,6 +101,80 @@ test.describe("拖拽调整行序", () => {
     await expectPersistedLines(app.dataDir, LINES);
     // 撤销后光标回到拖拽前的位置，且没有选区（撤销会恢复编辑前的选区，applyEdit 已处理）
     expect(await selection(page)).toEqual({ start: 1, end: 1 });
+  });
+
+  test("短笔记：拖拽 → Ctrl+Z → Ctrl+Y 精确往返（这一档 Chromium 是对的）", async ({
+    page,
+    app,
+  }) => {
+    await caretTo(page, 0, 1);
+    await dragLine(page, 0, 2);
+    const moved = "第二行\n第三行\n第一行";
+    expect(await editorText(page)).toBe(moved);
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(LINES.join("\n"));
+
+    await page.keyboard.press("Control+y");
+    expect(await editorText(page)).toBe(moved);
+    await expectPersistedLines(app.dataDir, ["第二行", "第三行", "第一行"]);
+  });
+
+  test("长笔记：拖拽 → Ctrl+Z → Ctrl+Y 后必须与搬动后逐字一致（修复前会丢一行）", async ({
+    page,
+    app,
+  }) => {
+    // 规模是这条用例的必要条件：短笔记（3~5 行）走的是同一段代码，却恰好落在 Chromium 正常的那一档，
+    // 只有到 11 行 / 74 字符这个量级，重做才会按错误的前后缀拼回文本（实测丢一整行，详见 `开发经验.md`）。
+    // 所以别为了「简洁」把这堆行缩成三行 —— 那样就复现不出来了。
+    await seedLines(app, page, LONG_NOTE);
+    await caretTo(page, 1, 0);
+    await dragLine(page, 1, 9);
+    expect(await editorText(page)).toBe(LONG_MOVED.join("\n"));
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(LONG_NOTE.join("\n"));
+
+    await page.keyboard.press("Control+y");
+    expect(await editorText(page)).toBe(LONG_MOVED.join("\n"));
+    await expectPersistedLines(app.dataDir, LONG_MOVED);
+  });
+
+  test("长笔记：Ctrl+Shift+Z 是另一个重做键位，同样必须精确", async ({ page, app }) => {
+    await seedLines(app, page, LONG_NOTE);
+    await caretTo(page, 1, 0);
+    await dragLine(page, 1, 9);
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(LONG_NOTE.join("\n"));
+
+    await page.keyboard.press("Control+Shift+z");
+    expect(await editorText(page)).toBe(LONG_MOVED.join("\n"));
+  });
+
+  test("长笔记：撤掉拖拽后接着撤掉打字，再连重做两笔也都精确", async ({ page, app }) => {
+    // 撤销栈里我们那一笔下面还有「打字」那一笔：重做要先让浏览器重放打字，轮到我们时才由我们重放
+    // （`structural.depth` 就是这个用途，见 NoteEditor.vue）
+    await seedLines(app, page, LONG_NOTE);
+    await caretTo(page, 0, 0);
+    await page.keyboard.type("※");
+    // 打字把首行（本来是空行）变成了「※」，行数不变
+    const typed = ["※", ...LONG_NOTE.slice(1)].join("\n");
+
+    await caretTo(page, 1, 0);
+    await dragLine(page, 1, 9);
+    const moved = ["※", ...LONG_MOVED.slice(1)].join("\n");
+    expect(await editorText(page)).toBe(moved);
+
+    await page.keyboard.press("Control+z"); // 撤掉拖拽（我们那一笔）
+    expect(await editorText(page)).toBe(typed);
+    await page.keyboard.press("Control+z"); // 再撤掉打字
+    expect(await editorText(page)).toBe(LONG_NOTE.join("\n"));
+
+    await page.keyboard.press("Control+y"); // 浏览器重做打字
+    expect(await editorText(page)).toBe(typed);
+    await page.keyboard.press("Control+y"); // 轮到拖拽：由我们重放
+    expect(await editorText(page)).toBe(moved);
   });
 
   test("拖动中不动内容，松手才换位并落盘", async ({ page, app }) => {

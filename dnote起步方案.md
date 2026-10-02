@@ -184,7 +184,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 
 1. `identifier` = `com.dnote.perphyyoung`。
 2. 窗口形态：**无边框**（自绘 header，与 cdown 一致）。
-3. 删除**不做**二次确认，删除即生效 —— 兜底是原生 `Ctrl+Z`：文本编辑之外，结构性编辑（`Ctrl+D` 删行、`Alt+↑/↓` 移行、行内「删除当前行」按钮、拖拽落盘）都走 `applyEdit`，都能撤回。
+3. 删除**不做**二次确认，删除即生效 —— 兜底是原生 `Ctrl+Z`：文本编辑之外，结构性编辑（`Ctrl+D` 删行、`Alt+↑/↓` 移行、行内「删除当前行」按钮、拖拽落盘）都走 `applyEdit`，都能撤回；`Ctrl+Y` / `Ctrl+Shift+Z` 重做同样精确（结构性编辑的重放由前端接管，浏览器对长多行的整篇替换重做有缺陷，见 `开发经验.md`）。
 4. **要托盘**；全局热键**后期再加**（`tauri-plugin-global-shortcut`，`Ctrl+Alt+N`），一期不引。
 5. **允许空行**，空行不自动删除、原样存储与显示。
 6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
