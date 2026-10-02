@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { pasteLines } from "@/features/notes/logic";
 
 const props = defineProps<{
@@ -7,6 +7,8 @@ const props = defineProps<{
   /** 是否被要求聚焦（新建/插入后自动落在这一行） */
   focused: boolean;
   dragging: boolean;
+  /** 是否落在行选区内（多行复制用） */
+  selected: boolean;
   placeholder: string;
 }>();
 
@@ -18,8 +20,15 @@ const emit = defineEmits<{
   (e: "drag-start", payload: { clientY: number; rowHeight: number }): void;
   (e: "drag-move", payload: { clientY: number }): void;
   (e: "drag-end"): void;
+  (e: "row-down", payload: { clientX: number; clientY: number }): void;
   (e: "blur"): void;
 }>();
+
+const rowClass = computed(() => {
+  if (props.dragging) return "bg-slate-800 shadow-sm";
+  if (props.selected) return "bg-sky-500/25";
+  return "";
+});
 
 const input = ref<HTMLInputElement | null>(null);
 const handle = ref<HTMLButtonElement | null>(null);
@@ -49,7 +58,7 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 // 单行输入框的默认粘贴会把换行丢掉（浏览器把整段压成一行），
-// 所以跨行粘贴必须自己接管：拆成多行交给上层落到行数组。
+// 所以多行粘贴必须自己接管：拆成多行交给上层落到行数组。
 function onPaste(e: ClipboardEvent) {
   const el = input.value;
   if (!el) return;
@@ -60,6 +69,13 @@ function onPaste(e: ClipboardEvent) {
   if (!lines) return; // 单行粘贴仍走浏览器默认行为
   e.preventDefault();
   emit("paste-lines", lines);
+}
+
+// 行长按：行选区的起点。拖拽手柄自己处理 pointerdown，不参与选区。
+function onRowDown(e: PointerEvent) {
+  if (e.button !== 0) return;
+  if (handle.value && e.target instanceof Node && handle.value.contains(e.target)) return;
+  emit("row-down", { clientX: e.clientX, clientY: e.clientY });
 }
 
 function onHandleDown(e: PointerEvent) {
@@ -82,7 +98,13 @@ function onHandleMove(e: PointerEvent) {
 </script>
 
 <template>
-  <li class="group flex items-center rounded" :class="dragging ? 'bg-slate-800 shadow-sm' : ''">
+  <li
+    class="group flex items-center rounded"
+    :class="rowClass"
+    role="option"
+    :aria-selected="selected"
+    @pointerdown="onRowDown"
+  >
     <button
       ref="handle"
       type="button"

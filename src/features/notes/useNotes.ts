@@ -4,7 +4,7 @@
 // 模块级单例状态（抄 cdown useCountdown 的模式）：App.vue 与 NotesPanel.vue
 // 调的是同一个 useNotes()，拿到的是同一份 rows / focusKey。
 
-import { nextTick, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { commands } from "@/bindings";
 import { log } from "@/utils/logger";
 
@@ -27,6 +27,29 @@ const ready = ref(false);
 const error = ref<string | null>(null);
 /** 需要聚焦的行 key；NoteLine 监听自己是否被选中 */
 const focusKey = ref<string | null>(null);
+
+/**
+ * 行选区：`anchor` 是按下的那一行，`focus` 是当前拖到的行（闭区间）。
+ * 行是一次多行复制的单位 —— 单行内的文字选择仍走浏览器原生行为，两者互不干扰。
+ */
+const selection = ref<{ anchor: number; focus: number } | null>(null);
+
+/** 规范化后的选区 `[start, end]`（闭区间，含两端）；没有选区时为 null */
+const selectionRange = computed<[number, number] | null>(() => {
+  const sel = selection.value;
+  if (sel === null) return null;
+  return [Math.min(sel.anchor, sel.focus), Math.max(sel.anchor, sel.focus)];
+});
+
+/** 建立 / 更新行选区 */
+export function selectRows(anchor: number, focus: number): void {
+  selection.value = { anchor, focus };
+}
+
+/** 清空行选区（点到别处、结构变动、按 Esc 时调用） */
+export function clearSelection(): void {
+  if (selection.value !== null) selection.value = null;
+}
 
 // ── 落盘 ────────────────────────────────────────────────────────────────────
 // 用 promise 链串行化写入：调用按入队顺序执行，且执行时才取当前 rows，
@@ -95,6 +118,7 @@ export function insertAfter(index: number): void {
   const row = makeRow();
   rows.value.splice(index + 1, 0, row);
   focusRow(row.key);
+  clearSelection();
   flushNow();
 }
 
@@ -103,6 +127,7 @@ function appendRow(): void {
   const row = makeRow();
   rows.value.push(row);
   focusRow(row.key);
+  clearSelection();
   flushNow();
 }
 
@@ -117,11 +142,12 @@ export function removeRow(index: number): void {
     const target = rows.value[Math.min(index, rows.value.length - 1)];
     focusRow(target.key);
   }
+  clearSelection();
   flushNow();
 }
 
 /**
- * 跨行粘贴：`lines[0]` 落在 index 行上，其余依次插到它下面。
+ * 多行粘贴：`lines[0]` 落在 index 行上，其余依次插到它下面。
  * 光标前后的合并由 `logic.pasteLines` 完成，这里只负责落到行数组。
  */
 export function pasteRows(index: number, lines: string[]): void {
@@ -130,6 +156,7 @@ export function pasteRows(index: number, lines: string[]): void {
   row.text = lines[0];
   const inserted = lines.slice(1).map((text) => makeRow(text));
   rows.value.splice(index + 1, 0, ...inserted);
+  clearSelection();
   flushNow();
 }
 
@@ -150,6 +177,9 @@ export function useNotes() {
     ready,
     error,
     focusKey,
+    selectionRange,
+    selectRows,
+    clearSelection,
     appendRow,
     insertAfter,
     removeRow,

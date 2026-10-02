@@ -37,7 +37,8 @@
 - `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
 - `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
 - dev 数据在 `<项目根>/dnote-data/`，release 在应用配置目录，两种构建互不共享；`DNOTE_DATA_DIR` 可重定向数据目录，**同时是「隔离实例」标识**（Rust 侧据此跳过单实例注册，e2e 因此能与 dev 实例并存）。
-- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（`workers: 1`，单实例）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的行输入框、`删除这一行` / `拖拽调整顺序` 按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
+- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（`workers: 1`，单实例）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的行输入框、`listbox`/`option` 的行与选中态、`删除这一行` / `拖拽调整顺序` 按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
+- e2e 用例**必须从 `./e2e-helpers` 导入 `test`**（不是 `@playwright/test`）：那里挂了 auto 的 `testSection` fixture，会在 `dnote.log` 里为每个用例记「用例名 + 结果 + 耗时」两行分节日志，从别处导入就没有这层日志。`expect` 仍从 `@playwright/test` 导入。
 - 构建时打印的 `Removed unused commands from ...` 是 `build.removeUnusedCommands: true` 的正常输出，不是告警。
 
 ## 结构速记

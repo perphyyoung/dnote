@@ -1,11 +1,11 @@
 /**
- * 主界面跨行粘贴：一次粘贴进来多行文本时，应当拆成多行落在当前行下方，
+ * 主界面多行粘贴：一次粘贴进来多行文本时，应当拆成多行落在当前行下方，
  * 而不是被浏览器压成一行。
  *
  * 背景：每行是 `<input type="text">`，浏览器对单行输入框的默认粘贴会把换行丢掉
  * （`a\nb` 粘出来是 `ab`），所以必须自己接 `paste` 事件把多行拆开。
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import {
   disposeApp,
   expectPersistedLines,
@@ -15,6 +15,7 @@ import {
   rowCount,
   rowTexts,
   setClipboard,
+  test,
   type AppHandle,
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
@@ -22,7 +23,7 @@ import { e2eLog } from "./e2e-logger";
 /// 用 CRLF 构造，顺带覆盖「Windows 剪贴板给的是 CRLF」这条路径
 const LINES = ["第一行", "第二行", "第三行"];
 
-test.describe("主界面跨行粘贴", () => {
+test.describe("主界面多行粘贴", () => {
   let app: AppHandle;
   let main: Page;
 

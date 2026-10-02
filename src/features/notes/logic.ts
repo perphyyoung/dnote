@@ -20,7 +20,7 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 const NEWLINE = /\r\n?|\n/g;
 
 /**
- * 把一段可能跨行的粘贴文本切成「结果行」。
+ * 把一段可能多行的粘贴文本切成「结果行」。
  *
  * `before` / `after` 是光标前后的原文：首行接在 `before` 后面、末行接在 `after` 前面，
  * 于是整段粘贴的结果与「把整个记事本当多行文本编辑」的直觉一致（后文自然留在最后一行）。
@@ -34,6 +34,19 @@ export function pasteLines(text: string, before: string, after: string): string[
   const last = parts.length - 1;
   parts[last] = parts[last] + after;
   return parts;
+}
+
+/** 行选区 `[start, end]`（闭区间）覆盖的行；下标自动钳制到合法范围 */
+export function rangeLines(lines: readonly string[], start: number, end: number): string[] {
+  if (lines.length === 0) return [];
+  const from = clamp(Math.min(start, end), 0, lines.length - 1);
+  const to = clamp(Math.max(start, end), 0, lines.length - 1);
+  return lines.slice(from, to + 1);
+}
+
+/** 行选区对应的文本（多行复制的内容）：用 `\n` 连接 */
+export function selectionText(lines: readonly string[], start: number, end: number): string {
+  return rangeLines(lines, start, end).join("\n");
 }
 
 /**

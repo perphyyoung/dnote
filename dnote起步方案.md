@@ -80,7 +80,7 @@
 - **点击行内任意位置**即可编辑：每行就是一个无边框 `<input>`，没有展示态/编辑态切换，没有卡片容器。
 - `Enter` → 在本行下方插入一条空行并聚焦。
 - 空行上按 `Backspace`，或点行尾悬停出现的「×」→ 直接删除该行（不弹确认）并聚焦上一行。
-- **跨行粘贴拆成多行**：`<input>` 的默认粘贴会把换行压平（换行变空格），所以自己接 `paste` 事件，用 `clipboardData` 的原始文本按 `CRLF|CR|LF` 拆行 —— 首行接光标前原文、末行接光标后原文、中间行落到下方；只有不含换行时不接管。纯函数 `pasteLines` 放 `logic.ts` 由 vitest 覆盖。
+- **多行粘贴必须拆行**：`<input>` 的默认粘贴会把换行压平（换行变空格），所以自己接 `paste` 事件，用 `clipboardData` 的原始文本按 `CRLF|CR|LF` 拆行 —— 首行接光标前原文、末行接光标后原文、中间行落到下方；只有不含换行时不接管。纯函数 `pasteLines` 放 `logic.ts` 由 vitest 覆盖。
 - **空行不作任何自动处理**：失焦、切窗口、重启都不会清理空行；仅当整个列表为空（文件中一行都没有）时自动补一条空行，保证永远有地方输入。
 
 ### 6.2 拖拽调序：Pointer 事件（不用 HTML5 DnD）
@@ -92,12 +92,23 @@
 - `pointerup` / `pointercancel`：算出最终下标 → 本地重排（乐观更新）→ 防抖 `save_notes`。
 - 拖拽期间 `user-select: none`；拖拽点加 `touch-action: none`。
 
-### 6.3 纯函数下沉到 `logic.ts`（vitest 覆盖）
+### 6.3 多行选择与多行复制
 
-行高统一，只剩两个函数：
+单行内的拖选与 Ctrl+C 保持浏览器原生行为；**多行**选择自己实现（每行是独立的 `<input>`，浏览器不可能跨元素选中文字）：
 
-- `moveItem<T>(list: T[], from: number, to: number): T[]` —— 移动元素，越界钳制。
-- `dropIndex(pointerY: number, startY: number, rowHeight: number, from: number, count: number): number` —— 由位移量换算目标行下标。
+- 按下时只记锚点行；**指针落到别的行**才进入行选区（还在同一行内就什么都不做，交给原生文字选择）；进入时 `blur()` 主动结束输入框里的原生选中高亮，避免两套高亮并存。
+- 选区是闭区间 `[start, end]`，反向拖同一结果；选中行用 `aria-selected` 表达（列表是 `listbox`、每行是 `option`），e2e 据此断言。
+- 行选区内 Ctrl+C 自己接管 `copy` 事件写剪贴板（各行用 `\n` 连接），**没有选区时不接管**，单行复制仍走原生；点任意行 / `Esc` / 任何结构变动都会清掉选区。
+- 多行粘贴与多行复制共用同一套行模型，因此复制出来的文本必须能原样粘回去。
+
+### 6.4 纯函数下沉到 `logic.ts`（vitest 覆盖）
+
+DOM 事件只负责喂参数，全部计算都是无 DOM 依赖的纯函数：
+
+- `moveItem<T>(list, from, to)` —— 移动元素，越界钳制。
+- `dropIndex(pointerY, startY, rowHeight, originIndex, count)` —— 由位移量换算目标行下标（基准固定在按下那一刻，实时重排才可逆）。
+- `pasteLines(text, before, after)` —— 多行粘贴拆行；不含换行返回 `null`（不接管）。
+- `rangeLines(lines, start, end)` / `selectionText(lines, start, end)` —— 行选区取行与拼文本（`\n` 连接）。
 
 ## 7. 目录结构
 
@@ -112,8 +123,9 @@ dnote/
   e2e/
     playwright.config.ts  global-setup.ts  tsconfig.json
     e2e-helpers.ts              # 起实例 / CDP 连窗口 / 行读写 / 剪贴板 / 落盘断言
-    e2e-logger.ts               # 测试侧日志（写 dnote.log）
+    e2e-logger.ts               # 测试侧日志 + 用例分节（写 dnote.log）
     01-paste-multiline-on-main-page.spec.ts
+    02-multiline-select-and-copy-on-main-page.spec.ts
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
@@ -156,7 +168,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置），首个用例覆盖跨行粘贴；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置，含用例名与耗时的分节日志）；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 
@@ -170,4 +182,5 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 6. **做单实例**：同时只允许一个窗口，二次启动唤起已有窗口，也就不涉及并发写。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
-9. **跨行粘贴拆成多行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。
+9. **多行粘贴必须拆行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。
+10. **多行选择与多行复制**（单行内保持原生选择；多行自己实现行选区，Ctrl+C 写 `\n` 连接的多行文本）。

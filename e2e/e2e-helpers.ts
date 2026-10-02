@@ -8,8 +8,15 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { execFileSync, execSync, spawn, type ChildProcess } from "node:child_process";
-import { chromium, expect, type Browser, type Locator, type Page } from "@playwright/test";
-import { e2eLog, setWorkerTag } from "./e2e-logger";
+import {
+  chromium,
+  expect,
+  test as base,
+  type Browser,
+  type Locator,
+  type Page,
+} from "@playwright/test";
+import { e2eLog, setWorkerTag, testLog } from "./e2e-logger";
 
 /// 项目根（e2e/ 的上一级）
 const ROOT = path.join(import.meta.dirname, "..");
@@ -151,17 +158,6 @@ export async function disposeApp(app: AppHandle): Promise<void> {
   removeDirBestEffort(app.dataDir);
 }
 
-/// 关掉实例后用同一数据目录重开（验证「重启后内容仍在」）
-export async function restartApp(app: AppHandle): Promise<void> {
-  await closeApp(app);
-  // 端口 TIME_WAIT 与句柄释放留一点时间，Windows 上 taskkill 后句柄释放不是即时的
-  await new Promise((r) => setTimeout(r, 1_500));
-  const child = spawn(exePath(), [], { cwd: ROOT, env: app.env, stdio: "ignore" });
-  child.on("exit", (code) => e2eLog.info("[restart] 进程退出", { code }));
-  app.child = child;
-  app.browser = await connectAppCdp(app.cdpPort, child, 12_000);
-}
-
 /// 读页面的窗口 label（TAURI 注入的元数据，不发 IPC）
 function pageWindowLabel(page: Page): Promise<string> {
   return page
@@ -225,17 +221,51 @@ export function rowCount(page: Page): Promise<number> {
 /// ---- 剪贴板与粘贴 ----
 
 /// 把文本写进系统剪贴板。
-/// 经由 UTF-8 临时文件 + PowerShell `Set-Clipboard`：直接给 `clip.exe` 喂 stdin 会走控制台
-/// OEM 代码页，中文会变乱码；命令行直传中文同样有编码问题，落文件最稳。
+/// 走 Base64 往返：PowerShell 的 stdout/stdin 编码随控制台代码页变（`clip.exe` 是 OEM、
+/// 命令行直传中文同样有编码问题），Base64 全是 ASCII，与代码页无关。
 export function setClipboard(text: string): void {
-  const tmp = path.join(ROOT, "temp", "e2e-clipboard.txt");
-  fs.mkdirSync(path.dirname(tmp), { recursive: true });
-  fs.writeFileSync(tmp, text, "utf8");
+  const b64 = Buffer.from(text, "utf8").toString("base64");
   execFileSync(
     "powershell",
-    ["-NoProfile", "-Command", `Set-Clipboard -Value (Get-Content -Raw -Encoding UTF8 '${tmp}')`],
+    [
+      "-NoProfile",
+      "-Command",
+      `Set-Clipboard -Value ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${b64}')))`,
+    ],
     { stdio: "ignore" },
   );
+}
+
+/// 读系统剪贴板的纯文本（同样走 Base64，避免中文被代码页打成乱码）
+export function readClipboard(): string {
+  const b64 = execFileSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      "[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string](Get-Clipboard -Raw)))",
+    ],
+    { encoding: "utf8" },
+  ).trim();
+  return b64 ? Buffer.from(b64, "base64").toString("utf8") : "";
+}
+
+/// 从 from 行拖到 to 行（多行选择）。
+/// 必须分步移动：一步跳到目标不会产生中间的 pointermove，
+/// 而「指针落在别的行上」正是进入行选区模式的触发条件。
+export async function dragRows(page: Page, from: number, to: number): Promise<void> {
+  const a = await rowInput(page, from).boundingBox();
+  const b = await rowInput(page, to).boundingBox();
+  if (!a || !b) throw new Error(`取不到第 ${from} / ${to} 行的位置`);
+  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, { steps: 8 });
+  await page.mouse.up();
+}
+
+/// 当前选中的行（ARIA 选中态，不依赖 class）
+export function selectedRows(page: Page): Locator {
+  return page.getByRole("option", { selected: true });
 }
 
 /// 点进第 index 行后按 Ctrl+V（真实剪贴板粘贴，不走合成事件）
@@ -254,6 +284,17 @@ export function decodeLines(raw: string): string[] {
   return lines;
 }
 
+/// 按 `infra/store.rs` 的写入规则编码（每行都以 `\n` 结尾，含最后一行）
+export function encodeLines(lines: string[]): string {
+  return lines.map((l) => `${l}\n`).join("");
+}
+
+/// 启动前预置数据文件（在 launchApp 之前调用），让初始内容确定下来、不必用 UI 造数据
+export function writeDataFile(dataDir: string, lines: string[]): void {
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(path.join(dataDir, "dnote.txt"), encodeLines(lines), "utf8");
+}
+
 /// 读落盘的行；文件不存在视为空列表
 export function readPersistedLines(dataDir: string): string[] {
   const file = path.join(dataDir, "dnote.txt");
@@ -267,3 +308,31 @@ export function expectPersistedLines(dataDir: string, lines: string[]): Promise<
     .poll(() => readPersistedLines(dataDir), { timeout: 3_000 })
     .toEqual(lines);
 }
+
+/// ---- 用例分节日志 ----
+
+/// 带 auto fixture 的 `test`：每个用例自动在 dnote.log 里记一行开始、一行结束（结果 + 耗时）。
+/// spec 侧零改动 —— 从本模块 import `test` 即可（与 paim 的约定一致）。
+/// 日志里因此能按用例切段，一眼看出失败用例之前都发生了什么。
+export const test = base.extend<{ testSection: void }>({
+  testSection: [
+    async ({}, use, testInfo) => {
+      const name = `${path.basename(testInfo.file, ".spec.ts")} › ${testInfo.titlePath.slice(1).join(" › ")}`;
+      testLog(testInfo.workerIndex, `▶ ${name}`);
+      const startedAt = Date.now();
+      await use();
+      const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+      if (testInfo.status === "passed") {
+        testLog(testInfo.workerIndex, `✓ 通过 ${seconds}s ${name}`);
+      } else {
+        // 失败原因取首行（超时/断言失败的第一行已足够定位，完整堆栈看 playwright 输出）
+        const reason = testInfo.errors[0]?.message?.split("\n")[0] ?? "";
+        testLog(
+          testInfo.workerIndex,
+          `✗ ${testInfo.status} ${seconds}s ${name}${reason ? ` — ${reason}` : ""}`,
+        );
+      }
+    },
+    { scope: "test", auto: true },
+  ],
+});
