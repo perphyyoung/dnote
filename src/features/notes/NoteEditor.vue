@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import {
   caretLine,
   caretOffset,
   deleteLine,
   insertIndexAt,
   lineRange,
+  moveIndexAfter,
   moveItem,
 } from "@/features/notes/logic";
 import {
@@ -157,9 +158,26 @@ function onHandleUp(): void {
   if (d.insert === d.originIndex || d.insert === d.originIndex + 1) return;
   // 插入位是「移除之前」的下标：往后拖时要减一
   const to = d.insert > d.originIndex ? d.insert - 1 : d.insert;
-  setLines(moveItem(lines.value, d.originIndex, to));
+  // 改文本前先记下光标在哪一行哪一列：直接改 value 会把插入符甩到文末，
+  // 「当前行」于是一起跳到末行，看起来像焦点跑掉了（见 `开发经验.md`）。
+  const el = editor.value;
+  const caret = el ? caretLine(el.value, el.selectionStart) : null;
+  const next = moveItem(lines.value, d.originIndex, to);
+  setLines(next);
   flushNow();
   flashDropped(to);
+  if (caret === null) return;
+  // 光标归位：被搬的就是它 → 跟着走到新位置；不是它 → 留在同一行内容上（列都不变）
+  const anchored = moveIndexAfter(d.originIndex, to, caret.index);
+  const text = next.join("\n");
+  void nextTick(() => {
+    // 一定要等 Vue 把新文本补丁到 DOM 之后再设光标，否则会被它再甩回末尾
+    const area = editor.value;
+    if (!area) return;
+    const at = caretOffset(text, anchored, caret.column);
+    area.setSelectionRange(at, at);
+    syncCaretLine(); // 高亮立刻跟上（程序化改光标不一定触发 selectionchange）
+  });
 }
 
 /** 系统取消（触摸被打断等）：整段丢弃，内容一个字都不改 */

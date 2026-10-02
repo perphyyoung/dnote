@@ -5,6 +5,7 @@ import {
   deleteLine,
   insertIndexAt,
   lineRange,
+  moveIndexAfter,
   moveItem,
 } from "@/features/notes/logic";
 
@@ -116,6 +117,31 @@ describe("caretLine / caretOffset", () => {
     expect(caretOffset(TEXT, 1, 2)).toBe(6);
     expect(caretOffset(TEXT, 99, 99)).toBe(11);
     expect(caretOffset(TEXT, -1, -5)).toBe(0);
+  });
+});
+
+describe("moveIndexAfter", () => {
+  // 与 moveItem(["A","B","C","D"], from, to) 的结果对齐
+  it("被搬的那一行跟着走", () => {
+    expect(moveIndexAfter(0, 2, 0)).toBe(2); // A → 下标 2
+    expect(moveIndexAfter(3, 1, 3)).toBe(1); // D → 下标 1
+  });
+
+  it("被跨过的行整体挪一格", () => {
+    expect(moveIndexAfter(0, 2, 1)).toBe(0); // B: [A,B,C,D] → [B,C,A,D]
+    expect(moveIndexAfter(0, 2, 2)).toBe(1); // C → 1
+    expect(moveIndexAfter(3, 1, 1)).toBe(2); // B: [A,B,C,D] → [A,D,B,C]
+    expect(moveIndexAfter(3, 1, 2)).toBe(3); // C → 3
+  });
+
+  it("没被跨过的行不动", () => {
+    expect(moveIndexAfter(0, 2, 3)).toBe(3); // D 在区间外
+    expect(moveIndexAfter(3, 1, 0)).toBe(0); // A 在区间外
+  });
+
+  it("原地不动时下标不变", () => {
+    expect(moveIndexAfter(2, 2, 2)).toBe(2);
+    expect(moveIndexAfter(0, 0, 1)).toBe(1);
   });
 });
 

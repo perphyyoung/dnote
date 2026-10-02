@@ -9,12 +9,14 @@
  */
 import { expect } from "@playwright/test";
 import {
+  caretTo,
   dragLine,
   dragLineWith,
   editorText,
   expectPersistedLines,
   readPersistedLines,
   seedLines,
+  selection,
   test,
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
@@ -49,6 +51,25 @@ test.describe("拖拽调整行序", () => {
 
     expect(await editorText(page)).toBe(LINES.join("\n"));
     await expectPersistedLines(app.dataDir, LINES);
+  });
+
+  test("拖拽后光标跟着被拖的那一行，不会跳到文末", async ({ page }) => {
+    await caretTo(page, 0, 2); // 当前行 = 第 1 行第 2 列
+    await dragLine(page, 0, 2); // 把它拖到最后
+
+    expect(await editorText(page)).toBe("第二行\n第三行\n第一行");
+    // 被拖的那一行现在是第 3 行：光标应停在第 3 行第 2 列（"第二行\n第三行\n" = 8，+2 = 10），
+    // 而不是被直接改 value 甩到文末（那会得到 { start: 11, end: 11 }）
+    expect(await selection(page)).toEqual({ start: 10, end: 10 });
+    await expect(page.locator("[data-caret-line]")).toHaveAttribute("data-caret-line", "2");
+  });
+
+  test("拖别的行时，光标留在原来那一行内容上", async ({ page }) => {
+    await caretTo(page, 2, 1); // 当前行 = 第 3 行「第三行」
+    await dragLine(page, 0, 2); // 把第 1 行拖到最后
+
+    // 内容变成 第二行 / 第三行 / 第一行：原来第 3 行的「第三行」被顶到第 2 行，光标跟着它到 (1, 1)
+    expect(await selection(page)).toEqual({ start: 5, end: 5 });
   });
 
   test("拖动中不动内容，松手才换位并落盘", async ({ page, app }) => {

@@ -61,6 +61,18 @@ export function caretOffset(text: string, index: number, column: number): number
   return offset + clamp(column, 0, lines[i].length);
 }
 
+/**
+ * 重排之后，原本第 `target` 行（按**内容**锚定）落在哪个下标。
+ * `from` / `to` 就是 `moveItem` 的两个参数。拖拽要把光标放回「原来那一行」时用它：
+ * 被搬走的那一行跟着走到 `to`，被它跨过的行整体挪一格，没被跨过的不动。
+ */
+export function moveIndexAfter(from: number, to: number, target: number): number {
+  if (target === from) return to;
+  if (from < to && target > from && target <= to) return target - 1;
+  if (from > to && target >= to && target < from) return target + 1;
+  return target;
+}
+
 /** 第 index 行的字符区间 [start, end)，**不含**行尾换行（复制当前行时用） */
 export function lineRange(text: string, index: number): { start: number; end: number } {
   const lines = text.split("\n");
