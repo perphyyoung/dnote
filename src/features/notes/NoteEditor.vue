@@ -113,6 +113,36 @@ function onHover(e: PointerEvent): void {
   hoverIndex.value = index >= 0 && index < lines.value.length ? index : null;
 }
 
+/**
+ * 点「最后一行下方」的容器空白区：直接把光标落到文末。
+ *
+ * 为什么需要兜这一下：textarea 的高度只到内容 + 底部留白，短笔记时它下面还剩一大片容器空白区，
+ * 而**点 div 不会把焦点给 textarea** —— 实测结果是编辑器失焦、光标原地不动、接着打字一个字都进不去
+ * （textarea 自己内部那 16px 底部留白不在此列：那里的点击原生就落到文末，所以让出去，
+ * 否则会把「按 x 点在最后一行某列」这个更好的行为改坏）。
+ *
+ * 用 `pointerdown` 而不是 `click`：要在浏览器把焦点挪走**之前**拦下来，否则先 blur 再 focus，
+ * 「当前行」高亮会闪一下。
+ */
+function onScrollerDown(e: PointerEvent): void {
+  if (e.button !== 0 || drag.value !== null) return; // 非左键 / 拖拽中不管
+  const el = scroller.value;
+  const area = editor.value;
+  if (!el || !area) return;
+  if (e.target !== el) return; // textarea 内部 / 手柄 / 行操作按钮各有各的处理，一律让出
+  const rect = el.getBoundingClientRect();
+  // 右侧滚动条也以容器为事件目标：不排除它的话，在滚动条上按下会被 preventDefault 打断拖动
+  const scrollbar = el.offsetWidth - el.clientWidth;
+  if (scrollbar > 0 && e.clientX > rect.right - scrollbar) return;
+  // 内容坐标：还在文本区（含 textarea 的底部留白）里就交给浏览器
+  if (e.clientY - rect.top + el.scrollTop <= PAD_TOP + lines.value.length * ROW_H) return;
+  e.preventDefault(); // 既保住焦点，也免得高亮闪一下
+  area.focus();
+  const end = area.value.length;
+  area.setSelectionRange(end, end);
+  syncCaretLine(); // 程序化改光标不一定触发 selectionchange，这里补一次
+}
+
 // ── 拖拽调序 ────────────────────────────────────────────────────────────────
 function onHandleDown(e: PointerEvent, index: number): void {
   if (e.button !== 0) return;
@@ -414,6 +444,7 @@ function flashDropped(index: number): void {
   <div
     ref="scroller"
     class="relative h-full overflow-y-auto"
+    @pointerdown="onScrollerDown"
     @pointermove="onHover"
     @pointerleave="hoverIndex = null"
   >
