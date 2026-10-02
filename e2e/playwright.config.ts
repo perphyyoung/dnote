@@ -6,8 +6,8 @@
  * e2e-helpers 的 `_appPool` 自实现），文件结束优雅关闭该实例。
  *
  * 并行模型：`workers: 4` + `fullyParallel: false` —— 文件之间并行、文件内串行。
- * 实例的数据目录用 `DNOTE_DATA_DIR` 重定向，该变量同时是 Rust 侧的「隔离实例」标识
- * （据此跳过单实例注册），因此多个 e2e 实例之间、以及与正在运行的 dev 实例之间互不干扰。
+ * 实例的数据目录用 `DNOTE_DATA_DIR` 重定向到 temp/ 下，与开发实例的数据互不干扰。
+ * e2e 跑的是 debug 构建，而单实例只在 release 注册，所以多个 e2e 实例能同时跑。
  *
  * 注意：**系统剪贴板是整机唯一资源**，涉及剪贴板的动作必须包在 `withClipboard` 里，
  * 否则并行 worker 会互相串内容（见 e2e-helpers.ts 的注释）。

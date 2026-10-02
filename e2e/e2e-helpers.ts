@@ -97,7 +97,8 @@ function dataDirFor(workerIndex: number, seq: number): string {
 }
 
 /// spawn 一个应用实例、连上 CDP、拿到就绪的主窗口页面。
-/// `DNOTE_DATA_DIR` 同时是「隔离实例」标识：Rust 侧据此跳过单实例注册，e2e 可与 dev 实例并存。
+/// `DNOTE_DATA_DIR` 只重定向数据目录；单实例只在 release 注册，debug（e2e / dev）不抢锁，
+/// 所以多个 e2e 实例能并行（dev 之间则由 vite 的 1420 端口拦住，不需要额外机制）。
 async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
   setWorkerTag(`w${workerIndex}-${seq}`);
   const dataDir = dataDirFor(workerIndex, seq);

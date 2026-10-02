@@ -6,7 +6,7 @@
 - 顺序**完全手动**：不做任何自动排序，顺序只由拖拽决定，重启后保持。
 - **允许空行**：空行是合法内容，原样存储、原样显示，不做任何自动清理。
 - **存储内容 = 界面内容**：后台存的就是这些行本身，没有 id、没有序号、没有时间戳，不存任何界面上看不见的东西。
-- **单实例**：同时只允许一个窗口，二次启动唤起已有窗口；因此也就没有并发写 `dnote.txt` 的问题。
+- **单实例（仅 release 构建）**：正式构建同时只允许一个窗口，二次启动唤起已有窗口；因此也就没有并发写 `dnote.txt` 的问题。debug 构建（`pnpm dev` / e2e）不抢锁，可与常驻的 release 并存（锁的键是 app identifier，dev 与 release 会撞同一把锁，见 `开发经验.md`）。
 - 按《tauri2项目起步指南》（`D:\py-code\paim\tauri2项目起步指南.md`）起步，依赖按需引入；桌面相关（单实例、窗口状态、托盘、日志）参考 `D:\py-code\cdown`，**版本栈与工程约定尽量与 cdown 保持一致**。
 
 ## 2. 技术栈
@@ -65,7 +65,7 @@
 - **行格式约定（保证空行能原样往返）**：写入时**每一行都以 `\n` 结尾（含最后一行）**；读取时按 `\n` 切分并丢弃末尾由终止换行产生的空串。这样 `["a", ""]` ↔ `"a\n\n"`、`[]` ↔ `""` 都能精确往返，末尾空行不会丢。
 - 写：先写 `dnote.txt.tmp` 再 `fs::rename` 覆盖（原子写，Windows 走 MOVEFILE_REPLACE_EXISTING）。
 - 数据目录三级优先：`DNOTE_DATA_DIR`（非空才生效）> debug `<项目根>/dnote-data` > release `app.path().app_config_dir()`。
-- 单实例运行，不存在多个实例并发写同一份 `dnote.txt` 的情况。
+- release 单实例运行，不存在多个实例并发写同一份 `dnote.txt` 的情况；dev 不防多开（数据是草稿，要隔离就给各实例带上 `DNOTE_DATA_DIR`）。
 
 **命令只有两条**：
 
@@ -165,10 +165,10 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 ## 9. 实施步骤
 
 1. **脚手架**：`package.json`（pnpm pin + scripts 照 cdown 改项目名）、`pnpm-workspace.yaml`、根 `Cargo.toml`、vite/tailwind/postcss/oxfmt/vitest/tsconfig 配置。
-2. **Rust 骨架**：`lib.rs`（`specta_builder()` + 两条导出路径 + 单实例注册）、`infra/store.rs`（文本行读 + 原子写 + 数据目录）、`infra/logging.rs`（文件日志）、`commands/notes.rs`（2 条命令），配 `store.test.rs`（多行往返、空行与末尾空行往返、`\r\n` 兼容、空文件）。
+2. **Rust 骨架**：`lib.rs`（`specta_builder()` + 两条导出路径 + 单实例注册（仅 release 构建））、`infra/store.rs`（文本行读 + 原子写 + 数据目录）、`infra/logging.rs`（文件日志）、`commands/notes.rs`（2 条命令），配 `store.test.rs`（多行往返、空行与末尾空行往返、`\r\n` 兼容、空文件）。
 3. **配置**：`tauri.conf.json`（含深色主题与窗口底色）+ `capabilities/default.json` + 图标（`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物含托盘图标）。
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
-5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
+5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
 7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
@@ -181,7 +181,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 3. 删除**不做**二次确认，删除即生效；后续加 undo/redo 兜底。
 4. **要托盘**；全局热键**后期再加**（`tauri-plugin-global-shortcut`，`Ctrl+Alt+N`），一期不引。
 5. **允许空行**，空行不自动删除、原样存储与显示。
-6. **做单实例**：同时只允许一个窗口，二次启动唤起已有窗口，也就不涉及并发写。
+6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
 9. **多行粘贴必须拆行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。

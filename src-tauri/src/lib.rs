@@ -67,11 +67,14 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default();
 
-    // 单例：官方要求最先注册。二次启动不出新实例，直接唤起已有窗口
-    //（顺带也就不存在多实例并发写 dnote.txt 的问题）。
-    // 判断依据统一为「实例标识环境变量」DNOTE_DATA_DIR：e2e / 多实例调试时该变量存在，
-    // 跳过注册，避免与正在运行的开发实例互相踢掉。
-    if !infra::store::is_isolated_instance() {
+    // 单实例**只保护 release 构建**（官方要求最先注册；二次启动不出新实例、直接唤起已有窗口，
+    // 顺带也就不存在多实例并发写 dnote.txt 的问题）。
+    // debug 构建不注册：锁的键是 app identifier，dev 与 release 读同一份 tauri.conf.json
+    // → 撞同一把锁（Windows 上是命名互斥体 `<identifier>-sim`），常驻的 release 实例会把
+    // dev 顶掉，表现为 `pnpm dev` 起不来。
+    // 也不给 dev 另加「实例标识」之类的开关：dev 之间本来就并存不了（vite 用 strictPort
+    // 占着 1420），而 e2e 直接 spawn 调试二进制、不经 vite，靠这一条就够并行。
+    if cfg!(not(debug_assertions)) {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             commands::main_window::show_main_window(app);
         }));
