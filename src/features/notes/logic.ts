@@ -61,6 +61,14 @@ export function caretOffset(text: string, index: number, column: number): number
   return offset + clamp(column, 0, lines[i].length);
 }
 
+/** 第 index 行的字符区间 [start, end)，**不含**行尾换行（复制当前行时用） */
+export function lineRange(text: string, index: number): { start: number; end: number } {
+  const lines = text.split("\n");
+  const i = clamp(index, 0, lines.length - 1);
+  const start = caretOffset(text, i, 0);
+  return { start, end: start + lines[i].length };
+}
+
 /**
  * Ctrl+D 的纯计算：算出「删掉第 index 行」要替换的字符区间与删除后的光标位置。
  *

@@ -5,6 +5,7 @@ import {
   caretOffset,
   deleteLine,
   insertIndexAt,
+  lineRange,
   moveItem,
 } from "@/features/notes/logic";
 import {
@@ -33,6 +34,17 @@ const scroller = ref<HTMLDivElement | null>(null);
 const editor = ref<HTMLTextAreaElement | null>(null);
 /** 指针当前停在第几行：只让这一行的手柄显形，界面保持安静 */
 const hoverIndex = ref<number | null>(null);
+
+/** 「当前行」＝光标所在的那一行；编辑器失焦时为 null（没有焦点就没有当前行） */
+const caretIndex = ref<number | null>(null);
+
+/** 当前行右侧的行操作按钮：只在指针停在当前行上时露头 —— 鼠标指哪，就说明在看哪 */
+const showRowActions = computed(
+  () => drag.value === null && caretIndex.value !== null && hoverIndex.value === caretIndex.value,
+);
+
+/** 渲染用的行号（模板里不必再处理 null） */
+const currentLine = computed(() => caretIndex.value ?? 0);
 
 /** 松手后落点闪一下给个「落在这儿了」的收尾 */
 const droppedIndex = ref<number | null>(null);
@@ -64,10 +76,35 @@ const showInsertLine = computed(() => {
   return d !== null && d.insert !== d.originIndex && d.insert !== d.originIndex + 1;
 });
 
-onMounted(() => registerEditor(editor.value));
+// ── 当前行（光标所在行）：高亮与右侧行操作按钮都以它为目标 ──────────────────
+/**
+ * 跟随光标刷新当前行。`selectionchange` 是唯一能全覆盖的信号（打字、方向键、鼠标点击、
+ * 撤销 / 重做都会触发），但它触发极频繁 —— 所以只在行号真的变了、或焦点进出时才写 ref。
+ */
+function syncCaretLine(): void {
+  const el = editor.value;
+  if (!el || document.activeElement !== el) {
+    caretIndex.value = null; // 失焦：没有焦点就没有「当前行」
+    return;
+  }
+  const index = caretLine(el.value, el.selectionStart).index;
+  if (caretIndex.value !== index) caretIndex.value = index;
+}
+
+/** 失焦：既落盘，也要收掉「当前行」高亮（blur 不会触发 selectionchange，得自己叫一次） */
+function onBlur(): void {
+  syncCaretLine();
+  flushNow();
+}
+
+onMounted(() => {
+  registerEditor(editor.value);
+  document.addEventListener("selectionchange", syncCaretLine);
+});
 
 onUnmounted(() => {
   registerEditor(null);
+  document.removeEventListener("selectionchange", syncCaretLine);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
   document.body.classList.remove("dragging");
@@ -189,17 +226,45 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** Ctrl+D：删掉光标所在的整行，光标落到顶上来的那一行行首 */
+/** Ctrl+D：删掉当前行 */
 function deleteCurrentLine(): void {
+  const el = editor.value;
+  if (!el) return;
+  deleteLineAt(caretLine(el.value, el.selectionStart).index);
+}
+
+/** 删掉第 index 行（Ctrl+D 与「删除当前行」按钮共用）：走 applyEdit，因此能 Ctrl+Z 撤销 */
+function deleteLineAt(index: number): void {
   const el = editor.value;
   if (!el) return;
   const text = el.value;
   const from = el.selectionStart;
-  const { index } = caretLine(text, from);
   const { start, end, caret } = deleteLine(text, index);
   if (start === end) return; // 空文档：没有可删的
   applyEdit(`${text.slice(0, start)}${text.slice(end)}`, caret, from);
-  log.info(`[notes] Ctrl+D 删除第 ${index + 1} 行`);
+  log.info(`[notes] 删除第 ${index + 1} 行`);
+}
+
+/**
+ * 复制第 index 行的文本到剪贴板（**不改文档**）。
+ * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中该行 + execCommand("copy")」
+ * 并把原选区还回去 —— 两条路都留着，避免环境差异变成静默失败。
+ */
+async function copyLineAt(index: number): Promise<void> {
+  const el = editor.value;
+  const text = lines.value[index];
+  if (!el || text === undefined) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const { start, end } = lineRange(el.value, index);
+    const restore = el.selectionStart;
+    el.setSelectionRange(start, end);
+    document.execCommand("copy");
+    el.setSelectionRange(restore, restore);
+    log.warn(`[notes] 剪贴板 API 不可用，已回落 execCommand：${String(e)}`);
+  }
+  log.info(`[notes] 已复制当前行（第 ${index + 1} 行）`);
 }
 
 /** Alt+↑/↓：与相邻行交换，光标跟着这一行走、列保持不变；已在头 / 尾则不动 */
@@ -237,6 +302,7 @@ function applyEdit(text: string, caret: number, from: number): void {
   }
   el.setSelectionRange(caret, caret);
   preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
+  syncCaretLine(); // 程序化改光标不一定触发 selectionchange，这里补一次，当前行立刻跟上
   flushNow();
 }
 
@@ -299,6 +365,13 @@ function flashDropped(index: number): void {
       class="pointer-events-none absolute inset-x-0 top-0"
       :style="{ height: `${editorHeight}px` }"
     >
+      <!-- 当前行（光标所在行）的高亮：随光标走，失焦即消失；比拖拽态淡一档以免看混 -->
+      <div
+        v-if="caretIndex !== null && drag === null"
+        class="absolute inset-x-0 bg-slate-800/40"
+        :data-caret-line="caretIndex"
+        :style="{ top: `${PAD_TOP + caretIndex * ROW_H}px`, height: `${ROW_H}px` }"
+      />
       <!-- 被拿起来的那一行：原地留个低对比标记 -->
       <div
         v-if="drag"
@@ -342,6 +415,63 @@ function flashDropped(index: number): void {
       >
         ⠿
       </button>
+      <!-- 当前行右侧的行操作：绝对定位浮在文字上，不占任何布局空间；
+           只在指针停在这一行时露头（鼠标指哪就说明在看哪），拖拽中藏起来免得误点 -->
+      <div
+        v-if="showRowActions"
+        class="absolute flex items-center gap-0.5"
+        :style="{ top: `${PAD_TOP + currentLine * ROW_H}px`, right: '6px', height: `${ROW_H}px` }"
+      >
+        <button
+          type="button"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-slate-900/80 text-slate-500 transition hover:bg-slate-700 hover:text-slate-200"
+          aria-label="复制当前行"
+          title="复制当前行"
+          @mousedown.prevent
+          @click="copyLineAt(currentLine)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-slate-900/80 text-slate-500 transition hover:bg-slate-700 hover:text-rose-300"
+          aria-label="删除当前行"
+          title="删除当前行 (Ctrl+D)"
+          @mousedown.prevent
+          @click="deleteLineAt(currentLine)"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M3 6h18" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            <line x1="10" x2="10" y1="11" y2="17" />
+            <line x1="14" x2="14" y1="11" y2="17" />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- 无边框 textarea：编辑语义全交给浏览器 —— 回车在光标处断行（行首回车即在当前位置
@@ -362,7 +492,8 @@ function flashDropped(index: number): void {
       :value="content"
       @input="onInput"
       @keydown="onKeydown"
-      @blur="flushNow"
+      @focus="syncCaretLine"
+      @blur="onBlur"
     />
   </div>
 

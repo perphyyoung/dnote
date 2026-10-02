@@ -4,6 +4,7 @@ import {
   caretOffset,
   deleteLine,
   insertIndexAt,
+  lineRange,
   moveItem,
 } from "@/features/notes/logic";
 
@@ -115,6 +116,24 @@ describe("caretLine / caretOffset", () => {
     expect(caretOffset(TEXT, 1, 2)).toBe(6);
     expect(caretOffset(TEXT, 99, 99)).toBe(11);
     expect(caretOffset(TEXT, -1, -5)).toBe(0);
+  });
+});
+
+describe("lineRange", () => {
+  it("给出该行的字符区间，不含行尾换行", () => {
+    expect(lineRange(TEXT, 0)).toEqual({ start: 0, end: 3 });
+    expect(lineRange(TEXT, 1)).toEqual({ start: 4, end: 7 });
+    expect(lineRange(TEXT, 2)).toEqual({ start: 8, end: 11 });
+  });
+
+  it("行号越界钳制到首 / 末行", () => {
+    expect(lineRange(TEXT, -3)).toEqual({ start: 0, end: 3 });
+    expect(lineRange(TEXT, 99)).toEqual({ start: 8, end: 11 });
+  });
+
+  it("空行与末行都安全", () => {
+    expect(lineRange("a\n\nb", 1)).toEqual({ start: 2, end: 2 });
+    expect(lineRange("a\n", 1)).toEqual({ start: 2, end: 2 });
   });
 });
 

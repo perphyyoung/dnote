@@ -254,6 +254,14 @@ export function caretPosition(page: Page): Promise<number> {
   return editor(page).evaluate((el) => (el as HTMLTextAreaElement).selectionStart);
 }
 
+/// 把指针停在第 line 行上。行操作按钮只在「指针停在当前行」时显形，断言它出现 / 收起要用它。
+/// 行位置直接借手柄的包围盒（手柄就是按行定位的），免得在测试里再抄一份行高常量。
+export async function hoverRow(page: Page, line: number): Promise<void> {
+  const box = await lineHandles(page).nth(line).boundingBox();
+  if (!box) throw new Error(`取不到第 ${line} 行的手柄位置`);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 /// 选区起止 offset（没有选区时两者相等）：断言「撤销后不会全选」这类问题用
 export function selection(page: Page): Promise<{ start: number; end: number }> {
   return editor(page).evaluate((el) => {
