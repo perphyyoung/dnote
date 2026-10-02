@@ -92,15 +92,6 @@ export function setContent(text: string): void {
   scheduleSave();
 }
 
-/**
- * 拖拽重排后写回整份文本。
- * 拖拽过程中每次换位都会调它（乐观更新），落盘压成一次：松手时由调用方 `flushNow`。
- */
-export function setLines(next: readonly string[]): void {
-  content.value = next.join("\n");
-  scheduleSave();
-}
-
 /** 末尾追加一个空行并聚焦（header 的「＋」）：等价于把光标放到末尾再按回车 */
 export function appendLine(): void {
   content.value = `${content.value}\n`;
@@ -118,5 +109,5 @@ export function appendLine(): void {
 void load();
 
 export function useNotes() {
-  return { content, lines, ready, error, setContent, setLines, appendLine };
+  return { content, lines, ready, error, setContent, appendLine };
 }

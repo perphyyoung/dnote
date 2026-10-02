@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   caretLine,
   caretOffset,
@@ -9,13 +9,7 @@ import {
   moveIndexAfter,
   moveItem,
 } from "@/features/notes/logic";
-import {
-  flushNow,
-  registerEditor,
-  setContent,
-  setLines,
-  useNotes,
-} from "@/features/notes/useNotes";
+import { flushNow, registerEditor, setContent, useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
 
 const { content, lines } = useNotes();
@@ -158,26 +152,17 @@ function onHandleUp(): void {
   if (d.insert === d.originIndex || d.insert === d.originIndex + 1) return;
   // 插入位是「移除之前」的下标：往后拖时要减一
   const to = d.insert > d.originIndex ? d.insert - 1 : d.insert;
-  // 改文本前先记下光标在哪一行哪一列：直接改 value 会把插入符甩到文末，
-  // 「当前行」于是一起跳到末行，看起来像焦点跑掉了（见 `开发经验.md`）。
   const el = editor.value;
-  const caret = el ? caretLine(el.value, el.selectionStart) : null;
-  const next = moveItem(lines.value, d.originIndex, to);
-  setLines(next);
-  flushNow();
-  flashDropped(to);
-  if (caret === null) return;
-  // 光标归位：被搬的就是它 → 跟着走到新位置；不是它 → 留在同一行内容上（列都不变）
+  if (!el) return;
+  const from = el.selectionStart; // 拖拽前光标在哪：一并交给 applyEdit 作为撤销后的归位点
+  const caret = caretLine(el.value, from);
+  const text = moveItem(lines.value, d.originIndex, to).join("\n");
+  // 光标跟着「同一行内容」走：被搬的就是它 → 到新位置；不是 → 留在原行（列都不变）
   const anchored = moveIndexAfter(d.originIndex, to, caret.index);
-  const text = next.join("\n");
-  void nextTick(() => {
-    // 一定要等 Vue 把新文本补丁到 DOM 之后再设光标，否则会被它再甩回末尾
-    const area = editor.value;
-    if (!area) return;
-    const at = caretOffset(text, anchored, caret.column);
-    area.setSelectionRange(at, at);
-    syncCaretLine(); // 高亮立刻跟上（程序化改光标不一定触发 selectionchange）
-  });
+  // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
+  // 于是**拖拽也能 Ctrl+Z 撤回**，光标也由它一次设到位。
+  applyEdit(text, caretOffset(text, anchored, caret.column), from);
+  flashDropped(to);
 }
 
 /** 系统取消（触摸被打断等）：整段丢弃，内容一个字都不改 */
@@ -301,18 +286,23 @@ function moveCurrentLine(delta: number): void {
 }
 
 /**
- * 落地一次结构性编辑（整份文本替换）。
+ * 落地一次结构性编辑（整份文本替换）。**所有**结构性编辑都走这里：Ctrl+D、Alt+↑/↓、
+ * 行内「删除当前行」按钮、拖拽落盘 —— 一份实现、一份坑、一份测试口径。
  *
  * 优先走 `document.execCommand("insertText")`：它把这一笔并进浏览器自己的撤销栈，于是
- * **Ctrl+Z 能把「删掉一行 / 移走一行」撤回来**；直接改 value 是进不了撤销栈的（取舍见
- * `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用（返回 false）就回落为直接写。
+ * **Ctrl+Z 能把「删掉一行 / 移走一行 / 拖拽搬动」撤回来**；直接改 value 是进不了撤销栈的，
+ * 而且会把插入符甩到文末（取舍见 `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用
+ * （返回 false）就回落为直接写。
  *
- * `from` 是编辑前光标所在的位置：撤销会连「编辑前的选区」一起恢复（而我们是全选后替换，
- * 于是撤销后整篇被选中），撤销时用它把光标放回原处并取消选区（见 `onInput`）。
+ * `caret` 是编辑后光标该在哪；`from` 是编辑前光标的位置 —— 撤销会连「编辑前的选区」一起恢复
+ * （而我们是全选后替换，于是撤销后整篇被选中），届时用它把光标放回原处并取消选区（见 `onInput`）。
  */
 function applyEdit(text: string, caret: number, from: number): void {
   const el = editor.value;
   if (!el) return;
+  // 键盘路径本来就在焦点里；鼠标拖拽可能没有（用户可能一直没点进编辑器），而 execCommand
+  // 只作用于聚焦元素 —— 先聚焦，顺带让拖完的光标看得见。
+  el.focus();
   el.setSelectionRange(0, el.value.length);
   if (!document.execCommand("insertText", false, text)) {
     el.value = text; // 先落到 DOM，保证下面设置光标时作用在新文本上

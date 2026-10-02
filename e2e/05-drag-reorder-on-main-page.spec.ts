@@ -72,6 +72,19 @@ test.describe("拖拽调整行序", () => {
     expect(await selection(page)).toEqual({ start: 5, end: 5 });
   });
 
+  test("拖拽搬动也能 Ctrl+Z 撤回来（与快捷键同一条实现路径）", async ({ page, app }) => {
+    await caretTo(page, 0, 1);
+    await dragLine(page, 0, 2);
+    expect(await editorText(page)).toBe("第二行\n第三行\n第一行");
+    await expectPersistedLines(app.dataDir, ["第二行", "第三行", "第一行"]);
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(LINES.join("\n"));
+    await expectPersistedLines(app.dataDir, LINES);
+    // 撤销后光标回到拖拽前的位置，且没有选区（撤销会恢复编辑前的选区，applyEdit 已处理）
+    expect(await selection(page)).toEqual({ start: 1, end: 1 });
+  });
+
   test("拖动中不动内容，松手才换位并落盘", async ({ page, app }) => {
     await dragLineWith(page, 0, 2, async () => {
       // 此刻指针已到落点、还没松手。停住 500ms（超过 400ms 落盘防抖）：

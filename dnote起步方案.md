@@ -85,7 +85,7 @@
 
 ### 6.2 拖拽调序：Pointer 事件 + 左侧行手柄层（不用 HTML5 DnD）
 
-- **决定**：不用 HTML5 DnD（WebView2 下 `drop` 不触发，paim 已踩实），改用 Pointer 事件 + 手柄层；**拖动期间不改文本**，只画「幽灵行 + 插入线」，松手才重排并落盘；落点用 `insertIndexAt`（行优先 + 看方向），不用「按位移换算下标」的旧模型。
+- **决定**：不用 HTML5 DnD（WebView2 下 `drop` 不触发，paim 已踩实），改用 Pointer 事件 + 手柄层；**拖动期间不改文本**，只画「幽灵行 + 插入线」，松手那一笔走 `applyEdit`（整份替换 → 可 `Ctrl+Z` 撤回，光标一并归位）；落点用 `insertIndexAt`（行优先 + 看方向），不用「按位移换算下标」的旧模型。
 - **为什么**：单个 textarea 没有逐行 DOM 节点，做不了 FLIP 让位动画；靠「边拖边重写文本」模拟让位只会跳变，并重置光标与撤销栈。详见 `开发经验.md`。
 
 ### 6.3 选择与复制：全部原生
@@ -178,13 +178,13 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
 7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
-9. **二期（可选）**：**结构操作的 undo/redo**（原生 `Ctrl+Z` 只覆盖文本编辑，拖拽重排撤不回来）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
+9. **二期（可选）**：把 header 的「＋」追加空行也收进 `applyEdit`（它现在直接改内容，那一笔撤不回来）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 
 ## 10. 已确认的取舍
 
 1. `identifier` = `com.dnote.perphyyoung`。
 2. 窗口形态：**无边框**（自绘 header，与 cdown 一致）。
-3. 删除**不做**二次确认，删除即生效；文本编辑可由原生 `Ctrl+Z` 撤销，结构操作的 undo/redo 留二期。
+3. 删除**不做**二次确认，删除即生效 —— 兜底是原生 `Ctrl+Z`：文本编辑之外，结构性编辑（`Ctrl+D` 删行、`Alt+↑/↓` 移行、行内「删除当前行」按钮、拖拽落盘）都走 `applyEdit`，都能撤回。
 4. **要托盘**；全局热键**后期再加**（`tauri-plugin-global-shortcut`，`Ctrl+Alt+N`），一期不引。
 5. **允许空行**，空行不自动删除、原样存储与显示。
 6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
