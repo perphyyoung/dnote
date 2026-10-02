@@ -147,6 +147,28 @@ function updateFromPointer(pointerY: number): void {
 // ── 应用内快捷键（键位与边界见 design.md 快捷键节）────────────────────────────
 // 挂在 textarea 自己的 keydown 上（元素级），不挂 document：编辑器只有一个，元素级天然
 // 随组件挂载 / 卸载，既不会残留监听，也不会出现「一次按键被两个监听各处理一遍」。
+
+/**
+ * 结构性编辑之前的光标位置，只在「紧接着的这次撤销/重做」里用一次。
+ * 之所以需要：Chromium 的撤销会恢复编辑前的选区，而我们的替换是「全选 + 插入」，
+ * 撤销后如果不收拾，用户看到的是「文本回来了，但整篇被选中」（见 `开发经验.md`）。
+ */
+let preEditCaret: number | null = null;
+
+/** 所有输入（含原生撤销 / 重做）都从这里进：更新内容，顺带修正撤销带出来的选区 */
+function onInput(e: Event): void {
+  const el = e.target as HTMLTextAreaElement;
+  const inputType = (e as InputEvent).inputType;
+  if (inputType === "historyUndo" || inputType === "historyRedo") {
+    const caret = Math.min(preEditCaret ?? el.selectionStart, el.value.length);
+    preEditCaret = null;
+    el.setSelectionRange(caret, caret);
+  } else {
+    preEditCaret = null; // 用户又打字了，上一次结构性编辑的位置不再适用
+  }
+  setContent(el.value);
+}
+
 /**
  * Ctrl+D 删除当前行；Alt+↑/↓ 上下移动当前行。
  *
@@ -172,10 +194,11 @@ function deleteCurrentLine(): void {
   const el = editor.value;
   if (!el) return;
   const text = el.value;
-  const { index } = caretLine(text, el.selectionStart);
+  const from = el.selectionStart;
+  const { index } = caretLine(text, from);
   const { start, end, caret } = deleteLine(text, index);
   if (start === end) return; // 空文档：没有可删的
-  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, caret);
+  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, caret, from);
   log.info(`[notes] Ctrl+D 删除第 ${index + 1} 行`);
 }
 
@@ -184,12 +207,13 @@ function moveCurrentLine(delta: number): void {
   const el = editor.value;
   if (!el) return;
   const text = el.value;
-  const { index, column } = caretLine(text, el.selectionStart);
+  const from = el.selectionStart;
+  const { index, column } = caretLine(text, from);
   const lines = text.split("\n");
   const target = index + delta;
   if (target < 0 || target >= lines.length) return;
   const next = moveItem(lines, index, target).join("\n");
-  applyEdit(next, caretOffset(next, target, column));
+  applyEdit(next, caretOffset(next, target, column), from);
   log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);
 }
 
@@ -199,8 +223,11 @@ function moveCurrentLine(delta: number): void {
  * 优先走 `document.execCommand("insertText")`：它把这一笔并进浏览器自己的撤销栈，于是
  * **Ctrl+Z 能把「删掉一行 / 移走一行」撤回来**；直接改 value 是进不了撤销栈的（取舍见
  * `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用（返回 false）就回落为直接写。
+ *
+ * `from` 是编辑前光标所在的位置：撤销会连「编辑前的选区」一起恢复（而我们是全选后替换，
+ * 于是撤销后整篇被选中），撤销时用它把光标放回原处并取消选区（见 `onInput`）。
  */
-function applyEdit(text: string, caret: number): void {
+function applyEdit(text: string, caret: number, from: number): void {
   const el = editor.value;
   if (!el) return;
   el.setSelectionRange(0, el.value.length);
@@ -209,6 +236,7 @@ function applyEdit(text: string, caret: number): void {
     setContent(text);
   }
   el.setSelectionRange(caret, caret);
+  preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
   flushNow();
 }
 
@@ -332,7 +360,7 @@ function flashDropped(index: number): void {
       aria-label="笔记内容"
       placeholder="写点什么…"
       :value="content"
-      @input="setContent(($event.target as HTMLTextAreaElement).value)"
+      @input="onInput"
       @keydown="onKeydown"
       @blur="flushNow"
     />

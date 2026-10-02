@@ -254,6 +254,14 @@ export function caretPosition(page: Page): Promise<number> {
   return editor(page).evaluate((el) => (el as HTMLTextAreaElement).selectionStart);
 }
 
+/// 选区起止 offset（没有选区时两者相等）：断言「撤销后不会全选」这类问题用
+export function selection(page: Page): Promise<{ start: number; end: number }> {
+  return editor(page).evaluate((el) => {
+    const area = el as HTMLTextAreaElement;
+    return { start: area.selectionStart, end: area.selectionEnd };
+  });
+}
+
 /// ---- 置顶（localStorage 里的界面偏好）----
 
 /// 与 App.vue 的 PIN_KEY 一致（跨语言无法共享常量）

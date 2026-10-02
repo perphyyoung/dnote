@@ -12,6 +12,7 @@ import {
   editorText,
   expectPersistedLines,
   seedLines,
+  selection,
   test,
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
@@ -80,13 +81,27 @@ test.describe("编辑器快捷键", () => {
     expect(await editorText(page)).toBe(LINES.join("\n"));
   });
 
-  test("Ctrl+Z 能把 Ctrl+D 删掉的行撤回来", async ({ page, app }) => {
-    await caretTo(page, 1, 0);
+  test("Ctrl+Z 撤销删行，既恢复文本也不把整篇选中", async ({ page, app }) => {
+    await caretTo(page, 1, 2); // 编辑前光标在第 2 行第 2 列
     await page.keyboard.press("Control+d");
     expect(await editorText(page)).toBe("第一行\n第三行");
 
     await page.keyboard.press("Control+z");
     expect(await editorText(page)).toBe(LINES.join("\n"));
+    // 撤销会连「编辑前的选区」一起恢复，而我们的替换是「全选 + 插入」——
+    // 所以必须在撤销后把选区收成光标，并放回编辑前的位置（否则用户看到整篇被选中）
+    expect(await selection(page)).toEqual({ start: 6, end: 6 });
     await expectPersistedLines(app.dataDir, LINES);
+  });
+
+  test("Ctrl+Y 重做同样不会带出全选", async ({ page }) => {
+    await caretTo(page, 1, 0);
+    await page.keyboard.press("Control+d");
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Control+y");
+
+    expect(await editorText(page)).toBe("第一行\n第三行");
+    const { start, end } = await selection(page);
+    expect(end - start).toBe(0);
   });
 });
