@@ -5,6 +5,9 @@ tmp-*
 target/
 dnote-data*/
 
+# dev 图标的两张预览图（由 scripts/gen-dev-icon.mjs 生成；事实源是脚本与 tray-dev.rgba）
+/src-tauri/icons/tray-dev*.png
+
 # Node
 node_modules/
 dist/

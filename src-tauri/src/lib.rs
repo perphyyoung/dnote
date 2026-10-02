@@ -122,9 +122,20 @@ pub fn run() {
                 let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show, &sep, &quit])?;
 
+                // dev 构建统一用通用的 DEV 图标，release 用应用自身图标（见 infra/tray.rs）。
+                // 任务栏也一起换，免得「托盘是 DEV、任务栏还是正式图标」这种半吊子状态。
+                let icon = infra::tray::icon(app.handle());
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_icon(icon.clone());
+                }
+
                 TrayIconBuilder::with_id("dnote-tray")
-                    .icon(app.default_window_icon().expect("缺少应用图标").clone())
-                    .tooltip("dnote")
+                    .icon(icon)
+                    .tooltip(if cfg!(debug_assertions) {
+                        "dnote (dev)"
+                    } else {
+                        "dnote"
+                    })
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {

@@ -79,6 +79,8 @@ pnpm release
 
 换图标：`node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，再把产物 `icon.png` 拷成 `public/icon.png` 作 favicon。
 
+换 dev 图标：`node scripts/gen-dev-icon.mjs`（默认生成 `src-tauri/icons/tray-dev.rgba` + 两张预览图）。dev 构建的托盘与任务栏都用它，release 用应用图标；脚本与 Rust 样板都是通用的，可整段复制到别的 Tauri 项目。
+
 ## 文档
 
 | 文件 | 内容 |

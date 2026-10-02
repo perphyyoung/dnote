@@ -35,10 +35,13 @@
 
 - 命令一律 **PowerShell 7** 写，串联用 `&&`（失败短路）/ `||`（兜底）。
 - 命令输出需要截断时**一律只保留最后 100 行**，不得用其它行数。
+- **删除是最后手段**，能用更轻的手段就别删：① 先问「这份文件的事实源在哪」——能由脚本 / 源文件一键重建的（`dist/`、`app-icon.png`、`temp/` 残留）才允许删；② 删前用 `search_content` / `search_file` 确认没有别处引用；③ 只是「不想让它入库」的就用 `.gitignore`（文件已被跟踪时补 `jj file untrack`，例：`src-tauri/icons/tray-dev*.png` 预览图），**不要删**；④ 不是本次任务生成的、或用户可能还要看的，先问再删。
+- **日志一律清空、不删除**：需要一份干净的日志就 `Clear-Content <log>`（或 `Set-Content -Path <log> -Value $null`），不要 `Remove-Item` —— 日志的价值在于可回溯，条目凭空消失比内容被覆盖更糟。
 - `CARGO_TARGET_DIR` 是**机器级环境变量**，指向共享目录 `D:\cargo-shared-target`；所有指向构建产物的脚本必须读该变量、不得硬编码（`scripts/gen-bindings.mjs` 已是此写法）。共享 target 是**全局一把锁**：与其它 tauri 项目不能并行 build，后者只会 `Blocking waiting for file lock`（等待，不是失败）。
 - `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
 - `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
 - dev 数据在 `<项目根>/dnote-data/`，release 在应用配置目录，两种构建互不共享；`DNOTE_DATA_DIR` 只用于重定向数据目录（e2e 靠它给每个实例分数据）。
+- **dev 与 release 的图标不同**：dev（含 e2e）的托盘与任务栏都用通用的「红底白字 DEV」图标，release 用应用自身图标 —— 两者常同机并跑，靠图标区分。图标是**裸 RGBA + `Image::new`**（不引 `image-png`/`image-ico`），来源 `scripts/gen-dev-icon.mjs`，Rust 样板在 `infra/tray.rs`；脚本、`icons/tray-dev.rgba`、`tray.rs` 三者都是项目无关的，可整段复制到别的 Tauri 项目（改了 `--size` 必须同步 `tray.rs` 的 `DEV_ICON_SIZE`，否则编译期断言失败）。
 - **单实例只在 release 构建注册**：debug（`pnpm dev` / e2e）不抢锁，所以 `pnpm dev` 能与常驻的 release 实例并存，e2e 也能并行起多个实例。锁的键是 app identifier，细节与验证方法见 `开发经验.md`。
 - e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（默认 **4 worker**；**每个 spec 文件一个实例** —— file 级 scope 由 `e2e-helpers.ts` 的 `_appPool` 自实现，Playwright 本身只有 test / worker 两级）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的行输入框、`listbox`/`option` 的行与选中态、`删除这一行` / `拖拽调整顺序` 按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
 - e2e 用例**必须从 `./e2e-helpers` 导入 `test`**（不是 `@playwright/test`）：那里挂了 auto 的 `testSection` fixture，会在 `dnote.log` 里为每个用例记「用例名 + 结果 + 耗时」两行分节日志，从别处导入就没有这层日志。`expect` 仍从 `@playwright/test` 导入。用例用 `app` / `page` 两个 fixture 拿实例与页面，不要自己 `beforeAll` 起进程。
