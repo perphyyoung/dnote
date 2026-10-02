@@ -41,3 +41,42 @@ export function insertIndexAt(
   const row = clamp(Math.floor((pointerY - listTop) / rowHeight), 0, count - 1);
   return row >= originIndex ? row + 1 : row;
 }
+
+// ── 行级编辑（应用内快捷键用）────────────────────────────────────────────────
+// 文本与光标一起算清楚：这些函数只做计算，返回值交给组件去落到 textarea（见 NoteEditor.vue）。
+
+/** 光标 offset → 所在行的行号与行内列（行按 `\n` 切分，列按字符数） */
+export function caretLine(text: string, offset: number): { index: number; column: number } {
+  const at = clamp(offset, 0, text.length);
+  const before = text.slice(0, at);
+  return { index: before.split("\n").length - 1, column: at - (before.lastIndexOf("\n") + 1) };
+}
+
+/** (行号, 行内列) → offset；行号与列都自动钳制到合法范围 */
+export function caretOffset(text: string, index: number, column: number): number {
+  const lines = text.split("\n");
+  const i = clamp(index, 0, lines.length - 1);
+  let offset = 0;
+  for (let k = 0; k < i; k += 1) offset += lines[k].length + 1;
+  return offset + clamp(column, 0, lines[i].length);
+}
+
+/**
+ * Ctrl+D 的纯计算：算出「删掉第 index 行」要替换的字符区间与删除后的光标位置。
+ *
+ * 删整行要连一个换行一起吃掉：优先吃行尾的 `\n`，光标落到下一行行首；末行没有行尾换行，
+ * 就改吃行首那个（否则 `"a\n"` 里的末尾空行永远删不掉），光标收到上一行行尾。
+ * 整篇只剩一行时退化为清空 —— 与「永远至少有一行」的约定一致。
+ */
+export function deleteLine(
+  text: string,
+  index: number,
+): { start: number; end: number; caret: number } {
+  const lines = text.split("\n");
+  const i = clamp(index, 0, lines.length - 1);
+  const start = caretOffset(text, i, 0);
+  const end = start + lines[i].length;
+  if (i < lines.length - 1) return { start, end: end + 1, caret: start };
+  if (i > 0) return { start: start - 1, end, caret: start - 1 };
+  return { start: 0, end, caret: 0 };
+}

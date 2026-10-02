@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { insertIndexAt, moveItem } from "@/features/notes/logic";
+import {
+  caretLine,
+  caretOffset,
+  deleteLine,
+  insertIndexAt,
+  moveItem,
+} from "@/features/notes/logic";
 
 describe("moveItem", () => {
   it("向后移动", () => {
@@ -71,5 +77,77 @@ describe("insertIndexAt", () => {
   it("空列表或行高非法返回 0", () => {
     expect(insertIndexAt(500, TOP, H, 0, 0)).toBe(0);
     expect(insertIndexAt(500, TOP, 0, N, 1)).toBe(0);
+  });
+});
+
+// 三行、每行 3 个字：offset 0..2 第一行（换行在 3）、4..6 第二行（换行在 7）、8..10 第三行
+const TEXT = "第一行\n第二行\n第三行";
+
+describe("caretLine / caretOffset", () => {
+  it("offset 落在首行、行中、末行", () => {
+    expect(caretLine(TEXT, 0)).toEqual({ index: 0, column: 0 });
+    expect(caretLine(TEXT, 5)).toEqual({ index: 1, column: 1 });
+    expect(caretLine(TEXT, 11)).toEqual({ index: 2, column: 3 });
+  });
+
+  it("换行符那一格仍算上一行行尾，过了它才是下一行行首", () => {
+    // 光标停在换行符上时视觉上还在上一行末尾，Ctrl+D 因此删的是上一行（与编辑器惯例一致）
+    expect(caretLine(TEXT, 3)).toEqual({ index: 0, column: 3 });
+    expect(caretLine(TEXT, 4)).toEqual({ index: 1, column: 0 });
+    expect(caretLine(TEXT, 7)).toEqual({ index: 1, column: 3 });
+    expect(caretLine(TEXT, 8)).toEqual({ index: 2, column: 0 });
+  });
+
+  it("offset 越界钳制到文本两端", () => {
+    expect(caretLine(TEXT, -5)).toEqual({ index: 0, column: 0 });
+    expect(caretLine(TEXT, 999)).toEqual({ index: 2, column: 3 });
+  });
+
+  it("与 caretOffset 互为逆运算", () => {
+    for (const offset of [0, 3, 5, 7, 11]) {
+      const { index, column } = caretLine(TEXT, offset);
+      expect(caretOffset(TEXT, index, column)).toBe(offset);
+    }
+  });
+
+  it("行号与列越界都钳制", () => {
+    expect(caretOffset(TEXT, 0, 0)).toBe(0);
+    expect(caretOffset(TEXT, 1, 2)).toBe(6);
+    expect(caretOffset(TEXT, 99, 99)).toBe(11);
+    expect(caretOffset(TEXT, -1, -5)).toBe(0);
+  });
+});
+
+describe("deleteLine", () => {
+  it("删中间行：连行尾换行一起删，光标落到顶上来的那一行行首", () => {
+    const { start, end, caret } = deleteLine(TEXT, 1);
+    expect([start, end, caret]).toEqual([4, 8, 4]);
+    expect(`${TEXT.slice(0, start)}${TEXT.slice(end)}`).toBe("第一行\n第三行");
+  });
+
+  it("删首行：光标落到新的首行行首", () => {
+    const { start, end, caret } = deleteLine(TEXT, 0);
+    expect([start, end, caret]).toEqual([0, 4, 0]);
+    expect(`${TEXT.slice(0, start)}${TEXT.slice(end)}`).toBe("第二行\n第三行");
+  });
+
+  it("删末行：改吃行首换行，光标收到上一行行尾", () => {
+    const { start, end, caret } = deleteLine(TEXT, 2);
+    expect([start, end, caret]).toEqual([7, 11, 7]);
+    expect(`${TEXT.slice(0, start)}${TEXT.slice(end)}`).toBe("第一行\n第二行");
+  });
+
+  it("删末尾空行：`a\\n` 里的那个空行也删得掉", () => {
+    const { start, end, caret } = deleteLine("a\n", 1);
+    expect([start, end, caret]).toEqual([1, 2, 1]);
+    expect("a\n".slice(0, start) + "a\n".slice(end)).toBe("a");
+  });
+
+  it("只剩一行：退化为清空", () => {
+    expect(deleteLine("abc", 0)).toEqual({ start: 0, end: 3, caret: 0 });
+  });
+
+  it("空文本：没有可删的区间", () => {
+    expect(deleteLine("", 0)).toEqual({ start: 0, end: 0, caret: 0 });
   });
 });

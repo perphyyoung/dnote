@@ -1,6 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
-import { insertIndexAt, moveItem } from "@/features/notes/logic";
+import {
+  caretLine,
+  caretOffset,
+  deleteLine,
+  insertIndexAt,
+  moveItem,
+} from "@/features/notes/logic";
 import {
   flushNow,
   registerEditor,
@@ -8,6 +14,7 @@ import {
   setLines,
   useNotes,
 } from "@/features/notes/useNotes";
+import { log } from "@/utils/logger";
 
 const { content, lines } = useNotes();
 
@@ -137,6 +144,74 @@ function updateFromPointer(pointerY: number): void {
   d.insert = insertIndexAt(pointerY, listTop, ROW_H, lines.value.length, d.originIndex);
 }
 
+// ── 应用内快捷键（键位与边界见 design.md 快捷键节）────────────────────────────
+// 挂在 textarea 自己的 keydown 上（元素级），不挂 document：编辑器只有一个，元素级天然
+// 随组件挂载 / 卸载，既不会残留监听，也不会出现「一次按键被两个监听各处理一遍」。
+/**
+ * Ctrl+D 删除当前行；Alt+↑/↓ 上下移动当前行。
+ *
+ * 判定一律用 `e.code`（物理键位），不受输入法与键盘布局影响；**输入法组字中直接放行** ——
+ * 那时的按键是在选字，不是在下命令（原生键位不需要这层判断，自研键位必须判）。
+ */
+function onKeydown(e: KeyboardEvent): void {
+  if (e.isComposing) return;
+  if ((e.ctrlKey || e.metaKey) && e.code === "KeyD") {
+    e.preventDefault();
+    deleteCurrentLine();
+    return;
+  }
+  if (e.altKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
+    // 已经在头 / 尾也要拦下来：免得平台把 Alt+↑↓ 当作窗口级操作
+    e.preventDefault();
+    moveCurrentLine(e.code === "ArrowUp" ? -1 : 1);
+  }
+}
+
+/** Ctrl+D：删掉光标所在的整行，光标落到顶上来的那一行行首 */
+function deleteCurrentLine(): void {
+  const el = editor.value;
+  if (!el) return;
+  const text = el.value;
+  const { index } = caretLine(text, el.selectionStart);
+  const { start, end, caret } = deleteLine(text, index);
+  if (start === end) return; // 空文档：没有可删的
+  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, caret);
+  log.info(`[notes] Ctrl+D 删除第 ${index + 1} 行`);
+}
+
+/** Alt+↑/↓：与相邻行交换，光标跟着这一行走、列保持不变；已在头 / 尾则不动 */
+function moveCurrentLine(delta: number): void {
+  const el = editor.value;
+  if (!el) return;
+  const text = el.value;
+  const { index, column } = caretLine(text, el.selectionStart);
+  const lines = text.split("\n");
+  const target = index + delta;
+  if (target < 0 || target >= lines.length) return;
+  const next = moveItem(lines, index, target).join("\n");
+  applyEdit(next, caretOffset(next, target, column));
+  log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);
+}
+
+/**
+ * 落地一次结构性编辑（整份文本替换）。
+ *
+ * 优先走 `document.execCommand("insertText")`：它把这一笔并进浏览器自己的撤销栈，于是
+ * **Ctrl+Z 能把「删掉一行 / 移走一行」撤回来**；直接改 value 是进不了撤销栈的（取舍见
+ * `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用（返回 false）就回落为直接写。
+ */
+function applyEdit(text: string, caret: number): void {
+  const el = editor.value;
+  if (!el) return;
+  el.setSelectionRange(0, el.value.length);
+  if (!document.execCommand("insertText", false, text)) {
+    el.value = text; // 先落到 DOM，保证下面设置光标时作用在新文本上
+    setContent(text);
+  }
+  el.setSelectionRange(caret, caret);
+  flushNow();
+}
+
 // ── 拖到边缘自动滚动（长笔记必需，否则拖不到窗口外的行）────────────────────
 let raf = 0;
 
@@ -258,6 +333,7 @@ function flashDropped(index: number): void {
       placeholder="写点什么…"
       :value="content"
       @input="setContent(($event.target as HTMLTextAreaElement).value)"
+      @keydown="onKeydown"
       @blur="flushNow"
     />
   </div>

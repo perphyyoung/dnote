@@ -249,6 +249,11 @@ export function lineHandles(page: Page): Locator {
   return page.getByRole("button", { name: "拖拽调整顺序" });
 }
 
+/// 光标在编辑器里的 offset：断言快捷键把光标落在哪儿时用
+export function caretPosition(page: Page): Promise<number> {
+  return editor(page).evaluate((el) => (el as HTMLTextAreaElement).selectionStart);
+}
+
 /// ---- 置顶（localStorage 里的界面偏好）----
 
 /// 与 App.vue 的 PIN_KEY 一致（跨语言无法共享常量）
