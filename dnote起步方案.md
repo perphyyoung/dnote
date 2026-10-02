@@ -50,11 +50,12 @@
 
 - 主窗口 label `main`，约 360×480（可缩放，`minWidth: 260 / minHeight: 200`）——像一张小纸条，够长即可。
 - **无边框**（`decorations: false`）+ 顶部 `data-tauri-drag-region` 拖动区（需 `core:window:allow-start-dragging`）。
-- 顶部只有一条极窄 header：拖动区 + 「＋」新建 + 右上角最小化按钮；无边框下没有系统按钮，隐藏/退出都靠这里与托盘（`core:window:allow-hide`）。
+- 顶部只有一条极窄 header：拖动区 + 「＋」新建 + 置顶图钉 + 右上角最小化按钮；无边框下没有系统按钮，隐藏/退出都靠这里与托盘（`core:window:allow-hide`）。
 - 右上角最小化按钮**用半角减号 `-`**（位置与样式与 cdown 对齐，仅字符换成半角）。
 - **默认深色主题**：窗口 `"theme": "Dark"` + `"backgroundColor": [15, 23, 42, 255]`（slate-900，首帧之前也不闪白），CSS 侧 `:root { color-scheme: dark }` 让原生滚动条/光标/选区一并走深色。
   - 坑：这里必须写**大写 `"Dark"`**。`Theme` 的 JSON Schema 是 schemars 自动派生的、用的是变体名（`Light` / `Dark`），而 serde 反序列化是小写化后匹配（`"dark"` 也认）。CLI 先按 schema 校验，写小写会直接报 `"dark" is not valid under any of the schemas listed in the 'anyOf' keyword` 而启动失败。
-- `skipTaskbar: false`；`alwaysOnTop: false`；无透明背景、无多窗口。
+- **默认置顶**（`alwaysOnTop: true`），图钉按钮可切换（`core:window:allow-set-always-on-top`）；偏好存 localStorage（界面偏好，不进 `dnote.txt`）。
+- `skipTaskbar: false`；无透明背景、无多窗口。
 
 ## 5. 存储与命令
 
@@ -126,6 +127,7 @@ dnote/
     e2e-logger.ts               # 测试侧日志 + 用例分节（写 dnote.log）
     01-paste-multiline-on-main-page.spec.ts
     02-multiline-select-and-copy-on-main-page.spec.ts
+    03-always-on-top-on-main-page.spec.ts
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
@@ -154,7 +156,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 ## 8. 关键配置
 
 - `tauri.conf.json`：`productName: "dnote"`、`version: "../package.json"`、`identifier: "com.dnote.perphyyoung"`、`removeUnusedCommands: true`、`bundle.targets: ["nsis"]`、`build.windows.staticVCRuntime: true`；CSP/devCsp 抄 cdown（去掉 `asset:` 相关指令，`devCsp` 放开 `ws://localhost:1420`）。
-- `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:event:allow-listen`、`core:event:allow-unlisten`；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
+- `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:window:allow-set-always-on-top`、`core:event:allow-listen`、`core:event:allow-unlisten`；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
 - 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
 - vite：端口 `1420` + `strictPort`、`@` → `src`、`define.__APP_VERSION__`、`server.watch.ignored` 用**白名单**（仅 `index.html` + `src/` + `public/`，抄 cdown/paim）。
 - `.gitignore`：根放 `dnote-data*/`、`temp/`、`tmp-*`、`target/`、`node_modules/`、`dist/`、`*.log`；`src-tauri/.gitignore` 放 `/target/`、`/gen/schemas`。`Cargo.lock` 与 `src/bindings.ts` **入库**。
@@ -184,3 +186,4 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
 9. **多行粘贴必须拆行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。
 10. **多行选择与多行复制**（单行内保持原生选择；多行自己实现行选区，Ctrl+C 写 `\n` 连接的多行文本）。
+11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。

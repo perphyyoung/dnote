@@ -225,6 +225,27 @@ export function rowCount(page: Page): Promise<number> {
   return rowInputs(page).count();
 }
 
+/// ---- 置顶（localStorage 里的界面偏好）----
+
+/// 与 App.vue 的 PIN_KEY 一致（跨语言无法共享常量）
+const PIN_KEY = "dnote:always-on-top";
+
+/// 置顶图钉按钮：aria-label 固定为「置顶」，开/关看 aria-pressed
+export function pinButton(page: Page): Locator {
+  return page.getByRole("button", { name: "置顶" });
+}
+
+/// 读置顶偏好；未存过为 null
+export function readPinPreference(page: Page): Promise<string | null> {
+  return page.evaluate((key) => localStorage.getItem(key), PIN_KEY);
+}
+
+/// 清掉置顶偏好。localStorage 存在 WebView profile 里、跨轮复用，
+/// 用例与用例、文件与文件之间必须显式复位（见 paim 的同名经验）。
+export function clearPinPreference(page: Page): Promise<void> {
+  return page.evaluate((key) => localStorage.removeItem(key), PIN_KEY);
+}
+
 /// ---- 剪贴板与粘贴 ----
 
 /// 系统剪贴板是**整机唯一**资源：多 worker 并行时，一个 worker 写剪贴板会串到另一个 worker

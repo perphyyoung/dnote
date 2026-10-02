@@ -49,6 +49,7 @@
 - 分层与依赖方向由 `.sentrux/rules.toml` 强制（`sentrux check .`）：Rust `domain(0) ← infra(1) ← commands(2)`（依赖只能从大 order 流向小 order）、Web `bindings(3) ← shared(4) ← features(5) ← app(6)`、`e2e(9)` 可引用任意层；另有两条点名禁令（`bindings.ts` 不得引用 `src/**`、`src/**` 不得引用 `e2e/**`）。**改结构前先看该文件**。
 - Rust 分层即目录名，依赖方向 `domain(0) ← infra(1) ← commands(2)`：`commands.rs` + `commands/`（命令）→ `domain.rs` + `domain/`（统一错误）→ `infra.rs` + `infra/`（文本行存储、文件日志）；子模块声明写在同名文件里，**不用 `mod.rs`**；入口 `lib.rs` 的 `run()`。
 - 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端的行数组是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/main_window.rs` 不是命令，是托盘与单例回调共用的窗口显隐（文件名叫 `main_window` 而非 `window`，是为了避开 sentrux 对 `@tauri-apps/api/window` 的后缀解析误报）。
-- 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（行数组与落盘）、`NoteLine.vue`（单行）、`NotesPanel.vue`（列表与拖拽编排）；外壳 `src/app/App.vue`（无边框标题条）。
+- 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（行数组与落盘）、`NoteLine.vue`（单行）、`NotesPanel.vue`（列表与拖拽编排）；外壳 `src/app/App.vue`（无边框标题条：拖动区 + `＋` 新建 + 置顶图钉 + `-` 隐藏到托盘）。
+- 界面偏好（目前只有置顶）存 **localStorage**（在 WebView profile 里），不进 `dnote.txt` —— 那个文件只放笔记内容。
 - 存储：`dnote.txt` 一行一条，**行序即顺序**，临时文件 + rename 原子写；行格式约定（每行都以 `\n` 结尾，含最后一行）见 `开发经验.md`，改动编解码必须跑 `pnpm test:rs`。
 - `e2e/`：`e2e-helpers.ts`（fixture：每文件一个实例 / CDP 连窗口 / 行读写 / 真实剪贴板 + `withClipboard` 锁 / `seedLines` / 落盘断言）、`e2e-logger.ts`（写 `dnote.log`，含用例分节）、`playwright.config.ts`（workers 4）、`global-setup.ts`（构建内嵌前端的调试二进制并清残留）。
