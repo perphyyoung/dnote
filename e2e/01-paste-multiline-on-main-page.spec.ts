@@ -4,19 +4,18 @@
  *
  * 背景：每行是 `<input type="text">`，浏览器对单行输入框的默认粘贴会把换行丢掉
  * （`a\nb` 粘出来是 `ab`），所以必须自己接 `paste` 事件把多行拆开。
+ *
+ * 本文件只有一个用例，用应用启动时的空数据目录即可，不需要预置数据。
  */
-import { expect, type Page } from "@playwright/test";
+import { expect } from "@playwright/test";
 import {
-  disposeApp,
   expectPersistedLines,
-  launchApp,
-  mainPage,
   pasteText,
   rowCount,
   rowTexts,
   setClipboard,
   test,
-  type AppHandle,
+  withClipboard,
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
@@ -24,24 +23,15 @@ import { e2eLog } from "./e2e-logger";
 const LINES = ["第一行", "第二行", "第三行"];
 
 test.describe("主界面多行粘贴", () => {
-  let app: AppHandle;
-  let main: Page;
+  test("粘贴多行文本会拆成多行", async ({ page, app }) => {
+    // 剪贴板是整机唯一资源，与其它 worker 的剪贴板操作串行
+    await withClipboard(async () => {
+      setClipboard(LINES.join("\r\n"));
+      await pasteText(page, 0);
+    });
 
-  test.beforeAll(async () => {
-    app = await launchApp(0);
-    main = await mainPage(app);
-  });
-
-  test.afterAll(async () => {
-    await disposeApp(app);
-  });
-
-  test("粘贴多行文本会拆成多行", async () => {
-    setClipboard(LINES.join("\r\n"));
-    await pasteText(main, 0);
-
-    const texts = await rowTexts(main);
-    const count = await rowCount(main);
+    const texts = await rowTexts(page);
+    const count = await rowCount(page);
     e2eLog.info(`[paste] 粘贴后 ${count} 行`, texts);
 
     expect(texts).toEqual(LINES);

@@ -168,7 +168,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置，含用例名与耗时的分节日志）；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）与多行选择/复制（02）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 

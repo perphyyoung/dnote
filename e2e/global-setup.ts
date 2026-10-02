@@ -5,14 +5,18 @@ import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { e2eLog } from "./e2e-logger";
 
-/// 实例目录名固定为 `temp/e2e-<序号>`，序号每轮从 0 重新计数；
-/// 上一轮若没删掉（进程句柄未释放），本轮会复用旧数据目录而拿到脏状态。
+/// 清理上一轮可能泄漏的实例目录。
+/// 为什么必须做：目录名是 `temp/e2e-w<worker>-<序号>`，而序号每轮从 0 重新计数；
+/// 上一轮若某实例的数据目录没删掉（进程句柄未释放 → 见 e2e-helpers 的 removeDirBestEffort），
+/// 本轮同 worker 跑到相同序号就会**复用旧数据**，用例会拿到上一轮的脏状态。
+/// `wv2-w<n>` 是按 worker 长期复用的 WebView2 profile，不动。
+/// `clipboard.lock` 也一并清掉：持锁方异常退出时它可能残留，会把下一轮卡到超时。
 function sweepLeakedDirs(): void {
   const temp = join(import.meta.dirname, "..", "temp");
   if (!fs.existsSync(temp)) return;
   const leaked = fs
     .readdirSync(temp)
-    .filter((name) => /^e2e-\d+$/.test(name) || /-stale-\d+$/.test(name));
+    .filter((name) => /^e2e-w\d+-\d+$/.test(name) || /-stale-\d+$/.test(name));
   for (const name of leaked) {
     try {
       fs.rmSync(join(temp, name), {
@@ -25,6 +29,11 @@ function sweepLeakedDirs(): void {
     } catch (e) {
       e2eLog.warn(`[global-setup] 残留目录清理失败（本轮可能复用旧数据）：${name} — ${e}`);
     }
+  }
+  try {
+    fs.rmSync(join(temp, "clipboard.lock"), { recursive: true, force: true });
+  } catch (e) {
+    e2eLog.warn(`[global-setup] 清理剪贴板锁失败：${e}`);
   }
 }
 
