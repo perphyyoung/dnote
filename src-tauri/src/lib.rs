@@ -65,14 +65,19 @@ pub fn run() {
         infra::logging::level_str()
     );
 
-    tauri::Builder::default()
-        .plugin(
-            // 单例：官方要求最先注册。二次启动不出新实例，直接唤起已有窗口
-            //（顺带也就不存在多实例并发写 dnote.txt 的问题）。
-            tauri_plugin_single_instance::init(|app, _args, _cwd| {
-                commands::window::show_main_window(app);
-            }),
-        )
+    let mut builder = tauri::Builder::default();
+
+    // 单例：官方要求最先注册。二次启动不出新实例，直接唤起已有窗口
+    //（顺带也就不存在多实例并发写 dnote.txt 的问题）。
+    // 判断依据统一为「实例标识环境变量」DNOTE_DATA_DIR：e2e / 多实例调试时该变量存在，
+    // 跳过注册，避免与正在运行的开发实例互相踢掉。
+    if !infra::store::is_isolated_instance() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            commands::window::show_main_window(app);
+        }));
+    }
+
+    builder
         .plugin({
             // 官方窗口状态插件：窗口创建时自动恢复上次尺寸/位置，退出时自动保存。
             // 排除 VISIBLE：主窗口可隐藏到托盘，可见性不参与持久化（否则托盘态退出后

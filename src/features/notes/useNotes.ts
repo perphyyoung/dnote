@@ -120,6 +120,19 @@ export function removeRow(index: number): void {
   flushNow();
 }
 
+/**
+ * 跨行粘贴：`lines[0]` 落在 index 行上，其余依次插到它下面。
+ * 光标前后的合并由 `logic.pasteLines` 完成，这里只负责落到行数组。
+ */
+export function pasteRows(index: number, lines: string[]): void {
+  const row = rows.value[index];
+  if (!row || lines.length === 0) return;
+  row.text = lines[0];
+  const inserted = lines.slice(1).map((text) => makeRow(text));
+  rows.value.splice(index + 1, 0, ...inserted);
+  flushNow();
+}
+
 /** 文本编辑：防抖落盘 */
 export function setText(index: number, text: string): void {
   const row = rows.value[index];

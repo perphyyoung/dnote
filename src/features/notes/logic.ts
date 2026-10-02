@@ -16,6 +16,26 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   return out;
 }
 
+/** 粘贴文本里的行分隔：CRLF / CR / LF 统一成 LF */
+const NEWLINE = /\r\n?|\n/g;
+
+/**
+ * 把一段可能跨行的粘贴文本切成「结果行」。
+ *
+ * `before` / `after` 是光标前后的原文：首行接在 `before` 后面、末行接在 `after` 前面，
+ * 于是整段粘贴的结果与「把整个记事本当多行文本编辑」的直觉一致（后文自然留在最后一行）。
+ * 不含换行时返回 `null` —— 交给浏览器默认行为在光标处插入，不接管。
+ */
+export function pasteLines(text: string, before: string, after: string): string[] | null {
+  const normalized = text.replace(NEWLINE, "\n");
+  if (!normalized.includes("\n")) return null;
+  const parts = normalized.split("\n");
+  parts[0] = before + parts[0];
+  const last = parts.length - 1;
+  parts[last] = parts[last] + after;
+  return parts;
+}
+
 /**
  * 由拖拽位移换算目标行下标。
  *

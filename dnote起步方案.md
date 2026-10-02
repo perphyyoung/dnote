@@ -16,7 +16,7 @@
 - 后端：Tauri 2.12 + tauri-specta rc.25 三件套（命令签名单一事实源）。
 - 存储：纯文本文件 `dnote.txt`，一行一条笔记。
 - 主题：默认深色（窗口 `theme: "Dark"` + slate-900 底色）。
-- 测试：vitest 测拖拽下标计算；cargo test 测文本行读写。
+- 测试：vitest 测拖拽下标计算与粘贴拆行；cargo test 测文本行读写；e2e 用 Playwright 经 CDP 连真实调试二进制，覆盖跨端链路。
 
 ## 3. 依赖取舍（相对 cdown，按需裁剪）
 
@@ -75,11 +75,12 @@
 
 ## 6. 交互设计
 
-### 6.1 行的编辑规则（全部规则就这四条）
+### 6.1 行的编辑规则
 
 - **点击行内任意位置**即可编辑：每行就是一个无边框 `<input>`，没有展示态/编辑态切换，没有卡片容器。
 - `Enter` → 在本行下方插入一条空行并聚焦。
 - 空行上按 `Backspace`，或点行尾悬停出现的「×」→ 直接删除该行（不弹确认）并聚焦上一行。
+- **跨行粘贴拆成多行**：`<input>` 的默认粘贴会把换行压平（换行变空格），所以自己接 `paste` 事件，用 `clipboardData` 的原始文本按 `CRLF|CR|LF` 拆行 —— 首行接光标前原文、末行接光标后原文、中间行落到下方；只有不含换行时不接管。纯函数 `pasteLines` 放 `logic.ts` 由 vitest 覆盖。
 - **空行不作任何自动处理**：失焦、切窗口、重启都不会清理空行；仅当整个列表为空（文件中一行都没有）时自动补一条空行，保证永远有地方输入。
 
 ### 6.2 拖拽调序：Pointer 事件（不用 HTML5 DnD）
@@ -108,6 +109,11 @@ dnote/
   scripts/gen-bindings.mjs  scripts/gen-icon.mjs
   README.md  design.md  日志使用说明.md  开发经验.md  AGENTS.md
   .rules/git提交信息规范.md
+  e2e/
+    playwright.config.ts  global-setup.ts  tsconfig.json
+    e2e-helpers.ts              # 起实例 / CDP 连窗口 / 行读写 / 剪贴板 / 落盘断言
+    e2e-logger.ts               # 测试侧日志（写 dnote.log）
+    01-paste-multiline-on-main-page.spec.ts
   src/
     bindings.ts                 # 生成物，入库，不手改不格式化
     main.ts  style.css  vite-env.d.ts
@@ -150,8 +156,9 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts` → `NoteLine.vue` / `NotesPanel.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册）、窗口状态持久化与恢复、托盘（显示/隐藏、退出）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `pnpm dev` 手工验收（重点验拖拽手感、Enter/Backspace 行操作、空行保持、重启后顺序保持）。
-7. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置与级别开关）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
-8. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、Playwright e2e（抄 paim 骨架）。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置），首个用例覆盖跨行粘贴；`typecheck` 纳入 `e2e/tsconfig.json`。
+8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
+9. **二期（可选）**：undo/redo（承接「删除不确认」）、全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
 
 ## 10. 已确认的取舍
 
@@ -163,3 +170,4 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 6. **做单实例**：同时只允许一个窗口，二次启动唤起已有窗口，也就不涉及并发写。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
 8. **默认深色主题**，图标用自研的 `scripts/gen-icon.mjs` 生成（内容为「draggable note」）。
+9. **跨行粘贴拆成多行**（`<input>` 默认会把换行压平，必须自己接管 `paste`）。

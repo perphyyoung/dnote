@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
+import { pasteLines } from "@/features/notes/logic";
 
 const props = defineProps<{
   text: string;
@@ -13,6 +14,7 @@ const emit = defineEmits<{
   (e: "update:text", value: string): void;
   (e: "insert"): void;
   (e: "remove"): void;
+  (e: "paste-lines", lines: string[]): void;
   (e: "drag-start", payload: { clientY: number; rowHeight: number }): void;
   (e: "drag-move", payload: { clientY: number }): void;
   (e: "drag-end"): void;
@@ -44,6 +46,20 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault();
     emit("remove");
   }
+}
+
+// 单行输入框的默认粘贴会把换行丢掉（浏览器把整段压成一行），
+// 所以跨行粘贴必须自己接管：拆成多行交给上层落到行数组。
+function onPaste(e: ClipboardEvent) {
+  const el = input.value;
+  if (!el) return;
+  const text = e.clipboardData?.getData("text") ?? "";
+  const start = el.selectionStart ?? el.value.length;
+  const end = el.selectionEnd ?? start;
+  const lines = pasteLines(text, el.value.slice(0, start), el.value.slice(end));
+  if (!lines) return; // 单行粘贴仍走浏览器默认行为
+  e.preventDefault();
+  emit("paste-lines", lines);
 }
 
 function onHandleDown(e: PointerEvent) {
@@ -84,10 +100,12 @@ function onHandleMove(e: PointerEvent) {
       ref="input"
       class="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm text-slate-200 outline-none placeholder:text-slate-600"
       type="text"
+      aria-label="笔记内容"
       :placeholder="placeholder"
       :value="text"
       @input="emit('update:text', ($event.target as HTMLInputElement).value)"
       @keydown="onKeydown"
+      @paste="onPaste"
       @blur="emit('blur')"
     />
     <button

@@ -2,7 +2,14 @@
 import { onUnmounted, ref } from "vue";
 import NoteLine from "@/features/notes/NoteLine.vue";
 import { dropIndex, moveItem } from "@/features/notes/logic";
-import { flushNow, insertAfter, removeRow, setText, useNotes } from "@/features/notes/useNotes";
+import {
+  flushNow,
+  insertAfter,
+  pasteRows,
+  removeRow,
+  setText,
+  useNotes,
+} from "@/features/notes/useNotes";
 
 const { rows, focusKey } = useNotes();
 
@@ -59,7 +66,7 @@ onUnmounted(() => document.body.classList.remove("dragging"));
 </script>
 
 <template>
-  <TransitionGroup tag="ul" name="row" class="m-0 list-none p-0">
+  <TransitionGroup tag="ul" name="row" class="m-0 list-none p-0" aria-label="笔记行">
     <NoteLine
       v-for="(row, index) in rows"
       :key="row.key"
@@ -70,6 +77,7 @@ onUnmounted(() => document.body.classList.remove("dragging"));
       @update:text="(value: string) => setText(index, value)"
       @insert="insertAfter(index)"
       @remove="removeRow(index)"
+      @paste-lines="(lines: string[]) => pasteRows(index, lines)"
       @drag-start="(payload) => onDragStart(index, payload)"
       @drag-move="onDragMove"
       @drag-end="onDragEnd"

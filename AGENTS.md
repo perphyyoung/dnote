@@ -36,7 +36,8 @@
 - `CARGO_TARGET_DIR` 是**机器级环境变量**，指向共享目录 `D:\cargo-shared-target`；所有指向构建产物的脚本必须读该变量、不得硬编码（`scripts/gen-bindings.mjs` 已是此写法）。共享 target 是**全局一把锁**：与其它 tauri 项目不能并行 build，后者只会 `Blocking waiting for file lock`（等待，不是失败）。
 - `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
 - `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
-- dev 数据在 `<项目根>/dnote-data/`（`DNOTE_DATA_DIR` 可重定向），release 在应用配置目录；两种构建互不共享。
+- dev 数据在 `<项目根>/dnote-data/`，release 在应用配置目录，两种构建互不共享；`DNOTE_DATA_DIR` 可重定向数据目录，**同时是「隔离实例」标识**（Rust 侧据此跳过单实例注册，e2e 因此能与 dev 实例并存）。
+- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（`workers: 1`，单实例）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的行输入框、`删除这一行` / `拖拽调整顺序` 按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
 - 构建时打印的 `Removed unused commands from ...` 是 `build.removeUnusedCommands: true` 的正常输出，不是告警。
 
 ## 结构速记
@@ -45,3 +46,4 @@
 - 只有两条命令（`commands/notes.rs`）：`load_notes` 读全部行、`save_notes` 整文件重写；**前端的行数组是唯一事实源**，编辑 / 插入 / 删除 / 拖拽全在前端完成，后端只管整文件读写。`commands/window.rs` 不是命令，是托盘与单例回调共用的窗口显隐。
 - 前端 `src/features/notes/`：`logic.ts`（拖拽纯函数 + 单测）、`useNotes.ts`（行数组与落盘）、`NoteLine.vue`（单行）、`NotesPanel.vue`（列表与拖拽编排）；外壳 `src/app/App.vue`（无边框标题条）。
 - 存储：`dnote.txt` 一行一条，**行序即顺序**，临时文件 + rename 原子写；行格式约定（每行都以 `\n` 结尾，含最后一行）见 `开发经验.md`，改动编解码必须跑 `pnpm test:rs`。
+- `e2e/`：`e2e-helpers.ts`（起实例 / CDP 连窗口 / 行读写 / 真实剪贴板粘贴 / 落盘断言）、`e2e-logger.ts`（写 `dnote.log`）、`playwright.config.ts`（workers 1）、`global-setup.ts`（构建内嵌前端的调试二进制并清残留实例目录）。

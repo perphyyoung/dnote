@@ -18,6 +18,7 @@
 - **允许空行**：空行是合法内容，原样存储、原样显示，不做任何自动清理。
 - **存储内容 = 界面内容**：后台存的就是这些行本身，没有 id、没有序号、没有时间戳；`dnote.txt` 可以直接用记事本打开核对。
 - **行操作**：回车在本行下方插入空行；空行上退格或点「×」删除该行。
+- **跨行粘贴**：一次粘贴进来多行文本（如从别的编辑器复制一段）会自动拆成多行，而不是被压成一行。
 - **托盘常驻**：标题栏「-」或托盘左键切换显示 / 隐藏，托盘右键「显示 / 退出」。
 - **单实例**：同时只允许一个窗口，二次启动唤起已有窗口。
 - **窗口记忆**：尺寸与位置重启后恢复。
@@ -67,6 +68,7 @@ pnpm release
 | `pnpm check` | 质量门：format → build:rs → gen:bindings → typecheck → build |
 | `pnpm test` | 全部单元测试（vitest 纯逻辑 + cargo test） |
 | `pnpm test:ui` / `pnpm test:rs` | 只跑前端 / 只跑 Rust 单测 |
+| `pnpm e2e` | Playwright e2e（CDP 连真实调试二进制，先自动构建一次） |
 | `pnpm build:rs` / `pnpm gen:bindings` | 手动重编 Rust / 复写 `src/bindings.ts` |
 | `pnpm release` | 构建安装包（NSIS） |
 

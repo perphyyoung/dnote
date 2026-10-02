@@ -12,7 +12,11 @@ function hideToTray() {
 </script>
 
 <template>
-  <div class="flex h-full flex-col bg-slate-900 text-slate-200">
+  <div
+    class="flex h-full flex-col bg-slate-900 text-slate-200"
+    role="application"
+    aria-label="dnote 主窗口"
+  >
     <!-- 无边框窗口的标题条：空白处按住可拖动窗口 -->
     <header
       class="flex h-8 shrink-0 items-center gap-1 border-b border-slate-800 px-1.5"

@@ -34,6 +34,12 @@ pub fn data_dir(app: &tauri::AppHandle) -> PathBuf {
     }
 }
 
+/// 是否处于「隔离实例」模式（e2e / 多实例调试）：由 `DNOTE_DATA_DIR` 标识。
+/// 该模式下跳过单实例注册（见 `lib.rs` 的 `run()`），避免与开发实例互相踢掉。
+pub fn is_isolated_instance() -> bool {
+    std::env::var("DNOTE_DATA_DIR").is_ok_and(|v| !v.is_empty())
+}
+
 /// 项目根目录（src-tauri 的上级），经 CARGO_MANIFEST_DIR 编译期定位。
 fn project_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

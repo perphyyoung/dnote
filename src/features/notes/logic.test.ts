@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropIndex, moveItem } from "@/features/notes/logic";
+import { dropIndex, moveItem, pasteLines } from "@/features/notes/logic";
 
 describe("moveItem", () => {
   it("向后移动", () => {
@@ -69,5 +69,29 @@ describe("dropIndex", () => {
 
   it("行高为 0 时退化为原地不动", () => {
     expect(dropIndex(500, 0, 0, 2, 6)).toBe(2);
+  });
+});
+
+describe("pasteLines", () => {
+  it("单行文本不接管，交给浏览器默认行为", () => {
+    expect(pasteLines("没有换行", "", "")).toBeNull();
+    expect(pasteLines("", "", "")).toBeNull();
+  });
+
+  it("跨行文本按行拆开", () => {
+    expect(pasteLines("a\nb\nc", "", "")).toEqual(["a", "b", "c"]);
+  });
+
+  it("CRLF 与单独的 CR 都归一化（Windows 剪贴板给的是 CRLF）", () => {
+    expect(pasteLines("a\r\nb", "", "")).toEqual(["a", "b"]);
+    expect(pasteLines("a\rb", "", "")).toEqual(["a", "b"]);
+  });
+
+  it("首行接光标前的原文，末行接光标后的原文", () => {
+    expect(pasteLines("B\nC", "A", "D")).toEqual(["AB", "CD"]);
+  });
+
+  it("末尾换行会多出一个空行", () => {
+    expect(pasteLines("a\n", "", "")).toEqual(["a", ""]);
   });
 });
