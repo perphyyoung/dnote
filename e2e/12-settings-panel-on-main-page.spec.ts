@@ -1,11 +1,12 @@
 /**
- * 设置面板：标题条右上的齿轮 → 在标题条**下方内嵌**弹出（不开独立窗口），里头是笔记正文字号。
+ * 设置面板：标题条右上的齿轮 → 在标题条**下方内嵌**弹出（不开独立窗口），里头是笔记正文字号
+ * 与笔记区底色。
  *
  * 两条口径：
  * - 动字号只改文字、不改行高（`ROW_H` 恒 28，对齐 cdown）—— 所以镜像与 textarea 必须**同字号**，
  *   否则折行位置不同、手柄会系统性错位。这里照 `09` 的护栏口径再核对一次
  *   「镜像总高 ≈ textarea 内容高」。
- * - 字号偏好存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
+ * - 两个偏好都存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
  *   profile，所以用例结束**必须复位**，否则会污染 09/10 的几何断言。
  */
 import { expect } from "@playwright/test";
@@ -38,6 +39,8 @@ test.describe("设置面板", () => {
     await page.evaluate(() => {
       localStorage.removeItem("dnote:font-size");
       document.documentElement.style.setProperty("--note-font-size", "14px");
+      localStorage.removeItem("dnote:background-color");
+      document.documentElement.style.setProperty("--note-bg", "#0f172a");
     });
   });
 
@@ -81,5 +84,23 @@ test.describe("设置面板", () => {
 
     await page.reload();
     await expect(editor(page)).toHaveCSS("font-size", "18px");
+  });
+
+  test("改底色：即时生效、重载后记住、可重置", async ({ page }) => {
+    const shell = page.getByRole("application");
+    await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)"); // #0f172a
+
+    await gear(page).click();
+    await page.getByLabel("背景颜色").fill("#123456");
+    // 即时生效：不重载就已经变了（原生取色器弹窗点不动，所以直接设值 + 触发 input）
+    await expect(shell).toHaveCSS("background-color", "rgb(18, 52, 86)");
+
+    await page.reload();
+    await expect(shell).toHaveCSS("background-color", "rgb(18, 52, 86)"); // localStorage 记住了
+
+    await gear(page).click();
+    await page.getByRole("button", { name: "重置背景颜色" }).click();
+    await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)");
+    await expect(page.getByRole("button", { name: "重置背景颜色" })).toHaveCount(0); // 已回默认 → 按钮收起
   });
 });

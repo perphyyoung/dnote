@@ -4,6 +4,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import {
+  BACKGROUND_DEFAULT,
+  backgroundColor,
+  resetBackgroundColor,
+  setBackgroundColor,
+} from "@/features/settings/background";
+import {
   FONT_SIZE_DEFAULT,
   FONT_SIZE_MAX,
   FONT_SIZE_MIN,
@@ -73,7 +79,8 @@ function hideToTray() {
 
 <template>
   <div
-    class="relative flex h-full flex-col bg-slate-900 text-slate-200"
+    class="relative flex h-full flex-col text-slate-200"
+    :style="{ backgroundColor: 'var(--note-bg)' }"
     role="application"
     aria-label="dnote 主窗口"
   >
@@ -188,6 +195,29 @@ function hideToTray() {
           笔记正文（{{ FONT_SIZE_MIN }}–{{ FONT_SIZE_MAX }}px），默认
           {{ FONT_SIZE_DEFAULT }}，拖动即时生效
         </p>
+
+        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">背景颜色</p>
+          <div class="flex items-center gap-2">
+            <input
+              type="color"
+              aria-label="背景颜色"
+              class="h-7 w-10 cursor-pointer rounded bg-slate-800"
+              :value="backgroundColor"
+              @input="setBackgroundColor(($event.target as HTMLInputElement).value)"
+            />
+            <!-- 只在非默认色时出现（与 cdown 的「重置」同款） -->
+            <button
+              v-if="backgroundColor !== BACKGROUND_DEFAULT"
+              type="button"
+              class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+              aria-label="重置背景颜色"
+              @click="resetBackgroundColor"
+            >
+              重置
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

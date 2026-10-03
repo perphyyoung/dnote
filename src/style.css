@@ -8,6 +8,9 @@
   /* 笔记正文字号：设置面板覆盖（`features/settings/fontSize.ts` 写这个变量）。
      textarea 与镜像测层都消费它 —— 两边必须永远同源，否则折行位置不同、手柄会系统性错位。 */
   --note-font-size: 14px;
+  /* 笔记区底色：设置面板覆盖（`features/settings/background.ts`）。只给外壳用，
+     标题条 / 面板 / 拖拽层等界面 chrome 各有自己的 slate 色，不跟它走。 */
+  --note-bg: #0f172a;
 }
 
 html,
