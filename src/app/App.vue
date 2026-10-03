@@ -10,13 +10,7 @@ import {
   resetBackgroundColor,
   setBackgroundColor,
 } from "@/features/settings/background";
-import {
-  FONT_SIZE_DEFAULT,
-  FONT_SIZE_MAX,
-  FONT_SIZE_MIN,
-  fontSize,
-  setFontSize,
-} from "@/features/settings/fontSize";
+import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontSize, setFontSize } from "@/features/settings/fontSize";
 import { log } from "@/utils/logger";
 
 const { ready, error } = useNotes();
@@ -180,24 +174,24 @@ function hideToTray() {
         aria-label="设置"
         @pointerdown.stop
       >
-        <div class="flex items-baseline justify-between">
+        <!-- 三行同构：左标签 + 右控件（不给设置项写说明文案） -->
+        <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">字体大小</p>
-          <span class="text-xs tabular-nums text-slate-400">{{ fontSize }}px</span>
+          <div class="flex items-center gap-2">
+            <input
+              type="range"
+              :min="FONT_SIZE_MIN"
+              :max="FONT_SIZE_MAX"
+              step="1"
+              aria-label="笔记字体大小"
+              class="w-20 accent-slate-400"
+              :value="fontSize"
+              @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
+            />
+            <!-- 定宽 + tabular-nums：拖动时数字宽度不跳，滑块不会被顶着抖 -->
+            <span class="w-9 text-right text-xs tabular-nums text-slate-400">{{ fontSize }}px</span>
+          </div>
         </div>
-        <input
-          type="range"
-          :min="FONT_SIZE_MIN"
-          :max="FONT_SIZE_MAX"
-          step="1"
-          aria-label="笔记字体大小"
-          class="w-full accent-slate-400"
-          :value="fontSize"
-          @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
-        />
-        <p class="text-[11px] leading-snug text-slate-500">
-          笔记正文（{{ FONT_SIZE_MIN }}–{{ FONT_SIZE_MAX }}px），默认
-          {{ FONT_SIZE_DEFAULT }}，拖动即时生效
-        </p>
 
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
           <p class="text-xs text-slate-300">背景颜色</p>
