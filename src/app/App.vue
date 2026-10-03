@@ -50,6 +50,10 @@ onMounted(() => {
   void applyAutoStart();
 });
 
+/// 设置面板底部的版本号：构建期由 vite 注入（`define`），单一事实源是 package.json。
+/// 必须先赋给 setup 里的绑定，模板才能引用 —— `<script setup>` 的模板只看得到作用域内的名字。
+const appVersion = __APP_VERSION__;
+
 /// 设置面板是否展开。收起入口统一走 `closeSettings`：点正文区、`Esc`、再点齿轮
 const settingsOpen = ref(false);
 
@@ -233,6 +237,12 @@ function hideToTray() {
               :class="autoStart ? 'translate-x-4' : 'translate-x-0'"
             />
           </button>
+        </div>
+
+        <!-- 最底下一行：版本号。不是设置项，但结构与上面几行一致（左标签 + 右信息） -->
+        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">版本号</p>
+          <span class="text-xs text-slate-400">v{{ appVersion }}</span>
         </div>
       </div>
     </div>
