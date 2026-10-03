@@ -55,7 +55,7 @@
 - **默认深色主题**：窗口 `"theme": "Dark"` + `"backgroundColor": [15, 23, 42, 255]`（slate-900，首帧之前也不闪白），CSS 侧 `:root { color-scheme: dark }` 让原生滚动条/光标/选区一并走深色。
   - 坑：这里必须写**大写 `"Dark"`**。`Theme` 的 JSON Schema 是 schemars 自动派生的、用的是变体名（`Light` / `Dark`），而 serde 反序列化是小写化后匹配（`"dark"` 也认）。CLI 先按 schema 校验，写小写会直接报 `"dark" is not valid under any of the schemas listed in the 'anyOf' keyword` 而启动失败。
 - **默认置顶**（`alwaysOnTop: true`），图钉按钮可切换（`core:window:allow-set-always-on-top`）；偏好存 localStorage（界面偏好，不进 `dnote.txt`）。
-- `skipTaskbar: false`；无透明背景、无多窗口。
+- `skipTaskbar: true`（**工具窗口**）：不进任务栏、不进 Alt+Tab，唤回靠托盘与 header 的 `-` —— 与 cdown 对齐；更实际的理由是**任务栏按钮会招来 Show Desktop 把窗口几何写坏**（Win+D 后只剩标题条、重启不自愈，见 `开发经验.md`）。无透明背景、无多窗口。
 
 ## 5. 存储与命令
 

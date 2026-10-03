@@ -39,6 +39,7 @@
 - `CARGO_TARGET_DIR` 是**机器级环境变量**，指向共享目录 `D:\cargo-shared-target`；所有指向构建产物的脚本必须读该变量、不得硬编码（`scripts/gen-bindings.mjs` 已是此写法）。共享 target 是**全局一把锁**：与其它 tauri 项目不能并行 build，后者只会 `Blocking waiting for file lock`（等待，不是失败）。
 - `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
 - `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
+- 主窗口是**工具窗口**（`skipTaskbar: true`）：不进任务栏、不进 Alt+Tab，唤回只有托盘与 header 的 `-`。**别改回 `false`** —— 任务栏按钮会让 Show Desktop（Win+D）去动这个窗口，把几何写成几十像素且重启不自愈（见 `开发经验.md`）。
 - dev 数据在 `<项目根>/dnote-data/`，release 在应用配置目录，两种构建互不共享；`DNOTE_DATA_DIR` 只用于重定向数据目录（e2e 靠它给每个实例分数据）。
 - **dev 与 release 的图标不同**（两者常同机并跑）：dev 的托盘与任务栏用通用「红底白字 DEV」图标，release 用应用自身图标。资产与样板都项目无关、可整段复制：`scripts/gen-dev-icon.mjs` + `src-tauri/icons/tray-dev.rgba` + `infra/tray.rs`；改脚本的 `--size` 必须同步 `tray.rs` 的 `DEV_ICON_SIZE`（编译期断言会挡下不一致）。
 - **`DNOTE_NO_TRAY`（存在且非空）不建托盘**：e2e 会注入它（并行的每个实例都建托盘会塞满系统托盘）。窗口与任务栏图标照旧；**e2e 用例不要点 header 的 `-` 隐藏** —— 没有托盘就再没有唤回入口。
