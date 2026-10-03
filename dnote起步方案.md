@@ -45,6 +45,7 @@
 - `tauri-plugin-window-state`：窗口尺寸/位置持久化与启动恢复（`with_state_flags(all & !VISIBLE & !DECORATIONS)`，dev/release 状态文件分离）。
 - `tauri` 的 `tray-icon` 特性 + 托盘（显示/隐藏、退出）——常驻随手记。
 - `tauri-plugin-global-shortcut`：全局热键 `Ctrl+Alt+N` 唤起 / 收回主窗口（已实现，见 `commands/hotkey.rs`）。**不支持重设热键**：没有设置项、不落盘、前端也没有相关命令。
+- `tauri-plugin-autostart`：开机自启（Windows 写 `HKCU\...\Run`）—— 偏好**缺省开**、存前端 localStorage，后端只负责落注册表与回读；**dev 构建与无人值守场景不写注册表**（见 `开发经验.md`）。
 
 ## 4. 窗口形态
 
@@ -155,6 +156,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 
 - `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐 + 尺寸下限 `apply_min_size` / `ensure_min_size`），前端没有对应绑定；`main_window.test.rs` 只覆盖**纯计算**两段（外框下限与尺寸兜底，真窗口那半边靠手工验收），文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
 - `commands/notes.rs` 只是两条命令的薄包装，真正需要测的行编解码与原子写都在 `infra/store.rs`，测试集中在 `store.test.rs`。
+- `commands/autostart.rs` 是唯一的「系统级界面偏好」命令（开机自启，见 §3）：偏好仍在前端 localStorage，它只负责落注册表与回读。它是纯 I/O，没有可抽的纯计算，所以**不写 Rust 单测** —— 判据在 e2e `12`（偏好链路）与手工验收（真注册表，只在 release 做）。
 
 ## 8. 关键配置
 
@@ -177,7 +179,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts`（整份文本 + 落盘）→ `NoteEditor.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）、设置面板与字号（12）；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）、设置面板（12：字号 / 底色 / 开机自启）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. 全局热键 `Ctrl+Alt+N`
 

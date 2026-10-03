@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
+import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
 import {
   BACKGROUND_DEFAULT,
   backgroundColor,
@@ -51,6 +52,8 @@ function togglePin() {
 // 只改 ref 会与窗口实际状态错位。
 onMounted(() => {
   void applyPin(localStorage.getItem(PIN_KEY) !== "0");
+  // 开机自启同理：按偏好（缺省 = 开）幂等应用一次；后端在 dev / 无人值守下不写注册表
+  void applyAutoStart();
 });
 
 /// 设置面板是否展开。收起入口统一走 `closeSettings`：点正文区、`Esc`、再点齿轮
@@ -217,6 +220,25 @@ function hideToTray() {
               重置
             </button>
           </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">开机自启</p>
+          <!-- 开关样式与角色照 cdown 的 SettingsToggle：点击直接上报，失败由上层回滚 -->
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="autoStart"
+            aria-label="开机自启"
+            class="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+            :class="autoStart ? 'bg-emerald-600' : 'bg-slate-700'"
+            @click="setAutoStart(!autoStart)"
+          >
+            <span
+              class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-slate-100 transition-transform"
+              :class="autoStart ? 'translate-x-4' : 'translate-x-0'"
+            />
+          </button>
         </div>
       </div>
     </div>

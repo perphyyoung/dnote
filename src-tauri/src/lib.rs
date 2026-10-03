@@ -18,6 +18,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             commands::notes::load_notes,
             commands::notes::save_notes,
+            commands::autostart::set_autostart,
             infra::logging::log_msg,
             infra::logging::get_log_level,
             infra::logging::set_log_level,
@@ -118,6 +119,12 @@ pub fn run() {
                     }
                 })
                 .build(),
+        )
+        .plugin(
+            // 开机自启：Windows 下写 `HKCU\...\Run`；macOS 那个 launcher 参数在 Windows 被忽略。
+            // 这里只注册插件 —— 真正开关注册表的时机与门禁见 `commands/autostart.rs`
+            //（dev 构建与无人值守场景都不写）。
+            tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None),
         )
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {

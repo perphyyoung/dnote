@@ -41,6 +41,7 @@ test.describe("设置面板", () => {
       document.documentElement.style.setProperty("--note-font-size", "14px");
       localStorage.removeItem("dnote:background-color");
       document.documentElement.style.setProperty("--note-bg", "#0f172a");
+      localStorage.removeItem("dnote:autostart");
     });
   });
 
@@ -102,5 +103,26 @@ test.describe("设置面板", () => {
     await page.getByRole("button", { name: "重置背景颜色" }).click();
     await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)");
     await expect(page.getByRole("button", { name: "重置背景颜色" })).toHaveCount(0); // 已回默认 → 按钮收起
+  });
+
+  // 这里只验「偏好 → 界面」这条链路：e2e 跑的是 dev 构建 + 无人值守，后端**不写注册表**
+  //（见 `commands/autostart.rs`），所以机器状态不会被测试改到，判据也因此是确定的。
+  test("开机自启：默认开，关掉后记住，再打开也记住", async ({ page }) => {
+    const toggle = () => page.getByRole("switch", { name: "开机自启" });
+
+    await gear(page).click();
+    await expect(toggle()).toHaveAttribute("aria-checked", "true"); // 缺省 = 开
+
+    await toggle().click();
+    await expect(toggle()).toHaveAttribute("aria-checked", "false");
+    expect(await page.evaluate(() => localStorage.getItem("dnote:autostart"))).toBe("0");
+
+    await page.reload();
+    await gear(page).click();
+    await expect(toggle()).toHaveAttribute("aria-checked", "false");
+
+    await toggle().click();
+    await expect(toggle()).toHaveAttribute("aria-checked", "true");
+    expect(await page.evaluate(() => localStorage.getItem("dnote:autostart"))).toBe("1");
   });
 });

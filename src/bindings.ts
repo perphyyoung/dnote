@@ -9,6 +9,13 @@ export const commands = {
 	loadNotes: () => __TAURI_INVOKE<string[]>("load_notes"),
 	/**  整文件重写（临时文件 + rename 原子替换）。 */
 	saveNotes: (lines: string[]) => __TAURI_INVOKE<null>("save_notes", { lines }),
+	/**
+	 *  应用开机自启设置，并**回读实际状态**（前端据此判断要不要回滚开关）。
+	 * 
+	 *  不允许动注册表时**原样回显 `on`**（不读注册表）：那是「本环境不生效」，不是「设置失败」——
+	 *  若回读真实值，dev 里开关会被自己打回去，e2e 的判据也会随机器状态飘。
+	 */
+	setAutostart: (on: boolean) => __TAURI_INVOKE<boolean>("set_autostart", { on }),
 	/**  前端上报日志：经全局级别过滤，被过滤的日志不落盘（前端有本地缓存预判）。 */
 	logMsg: (level: string, message: string) => __TAURI_INVOKE<void>("log_msg", { level, message }),
 	/**  查询当前全局最低日志级别（小写字符串，供前端启动时同步缓存）。 */
