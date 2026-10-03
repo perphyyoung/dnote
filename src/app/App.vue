@@ -57,7 +57,22 @@ function hideToTray() {
       class="flex h-8 shrink-0 items-center gap-1 border-b border-slate-800 px-1.5"
       data-tauri-drag-region
     >
-      <span class="select-none pl-1 text-xs font-medium tracking-wide text-slate-500"> dnote </span>
+      <!-- 应用图标：与 favicon 同一份资产（`public/icon.png`），装饰性 —— 语义由旁边的名称承担。
+           `pointer-events-none` 是为了让事件穿透到 header：抓着图标也能拖窗口（拖动判定看的是
+           「指针下那个元素带不带 data-tauri-drag-region」）。不加圆角：图标本身就是圆角方块。 -->
+      <img
+        src="/icon.png"
+        alt=""
+        aria-hidden="true"
+        class="pointer-events-none h-3.5 w-3.5 shrink-0 select-none"
+      />
+      <!-- 名称也要带拖动标记：拖动判定看的是「指针下那个元素**自己**带不带」，父元素（header）带了不算 -->
+      <span
+        class="select-none text-xs font-medium tracking-wide text-slate-500"
+        data-tauri-drag-region
+      >
+        dnote
+      </span>
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
       <button
         type="button"
