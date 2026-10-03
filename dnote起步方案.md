@@ -152,7 +152,7 @@ dnote/
 
 Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`domain` 里只剩统一的命令错误类型。
 
-- `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐），因此没有对应的 `.test.rs`；文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
+- `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐 + 尺寸兜底 `ensure_min_size` / `watch_min_size`），前端没有对应绑定；`main_window.test.rs` 只覆盖尺寸兜底的**纯计算**（真窗口那半边靠手工验收），文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
 - `commands/notes.rs` 只是两条命令的薄包装，真正需要测的行编解码与原子写都在 `infra/store.rs`，测试集中在 `store.test.rs`。
 
 ## 8. 关键配置
