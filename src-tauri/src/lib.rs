@@ -99,6 +99,26 @@ pub fn run() {
             }
             state.build()
         })
+        .plugin(
+            // 全局热键 `Ctrl+Alt+N`（唤起 / 收回主窗口）：注册在 `setup`（见 `commands/hotkey.rs`），
+            // 这里只装「任意已注册热键被按下」的统一入口；长按的连发由 `HotkeyHeld` 过滤掉。
+            // 也不在构建期指定键位：构建期注册失败会让**启动直接失败**。
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    use tauri_plugin_global_shortcut::ShortcutState;
+                    let held = app.state::<commands::hotkey::HotkeyHeld>();
+                    match event.state() {
+                        ShortcutState::Pressed => {
+                            if held.press() {
+                                commands::hotkey::toggle_main_window(app);
+                            }
+                        }
+                        // 松手才复位：这样长按期间的重复 Pressed 只当成一次切换
+                        ShortcutState::Released => held.release(),
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(specta_builder.invoke_handler())
         .setup(move |app| {
             specta_builder.mount_events(app);
@@ -107,6 +127,7 @@ pub fn run() {
             let data_dir = infra::store::data_dir(app.handle());
             std::fs::create_dir_all(&data_dir)?;
             app.manage(infra::store::Store::new(data_dir.join("dnote.txt")));
+            app.manage(commands::hotkey::HotkeyHeld::default());
 
             // 托盘常驻：无边框窗口没有系统按钮，托盘是「显示 / 退出」的兜底出口。
             // 左键单击切换显示/隐藏；右键菜单：显示 / 退出。
@@ -179,6 +200,10 @@ pub fn run() {
                     log_info!("DNOTE_NO_TRAY 已设置：本次不创建托盘图标");
                 }
             }
+
+            // 全局热键：在这里注册（失败只记日志，不影响启动 —— 键可能被别的程序或另一个实例
+            // 占着，比如 e2e 并行的多个实例）。插件与统一入口在 builder 那边，实现见 `commands/hotkey.rs`。
+            commands::hotkey::register(app.handle());
 
             // 主窗口配置为 visible:false（避免几何恢复前的尺寸闪变），此处亮相
             let main_window = app.get_webview_window("main").expect("主窗口不存在");

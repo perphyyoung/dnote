@@ -34,7 +34,7 @@
 裁掉（相比 cdown）：
 
 - 一切 id / `sort_order` / 时间戳 / 领域模型结构体 → 存储就是那份文本本身（见 §5）。
-- `ConfirmDialog.vue` → 一行文本不值得二次确认：删除就是原生的退格 / `Delete`，直接生效（文本编辑可用 `Ctrl+Z` 撤销，结构操作的可撤销性见 §9 二期）。
+- `ConfirmDialog.vue` → 一行文本不值得二次确认：删除就是原生的退格 / `Delete`，直接生效（文本编辑可用 `Ctrl+Z` 撤销）。
 - 损坏文件备份与回落（`*.json.bak`、`migrate_*`）→ 纯文本没有「解析失败」这一说。
 - `tauri-plugin-dialog`、导入导出、`@vuepic/vue-datepicker`、`settings` / `date-picker` 第二窗口、`tauri-plugin-autostart`。
 - asset protocol / `protocol-asset` 特性；`vue-router`、pinia、rusqlite、`ColumnWidths` 之类可选持久化字段。
@@ -44,7 +44,7 @@
 - `tauri-plugin-single-instance`：**必须最先注册**；二次启动唤起已有窗口，顺带免掉并发写 `dnote.txt` 的问题。
 - `tauri-plugin-window-state`：窗口尺寸/位置持久化与启动恢复（`with_state_flags(all & !VISIBLE & !DECORATIONS)`，dev/release 状态文件分离）。
 - `tauri` 的 `tray-icon` 特性 + 托盘（显示/隐藏、退出）——常驻随手记。
-- `tauri-plugin-global-shortcut`：`Ctrl+Alt+N` 唤起——**二期再加**，一期不引。
+- `tauri-plugin-global-shortcut`：全局热键 `Ctrl+Alt+N` 唤起 / 收回主窗口（已实现，见 `commands/hotkey.rs`）。**不支持重设热键**：没有设置项、不落盘、前端也没有相关命令。
 
 ## 4. 窗口形态
 
@@ -103,7 +103,7 @@ DOM 事件只负责喂参数，全部计算都是无 DOM 依赖的纯函数（�
 
 ### 6.5 应用内快捷键：`Ctrl+D` 删行、`Alt+↑/↓` 移行
 
-- **决定**：只用标准 Web API 的 `keydown`（挂在编辑器元素上，不挂 `document`），**不引** `tauri-plugin-global-shortcut`；判定用 `e.code`、输入法组字中放行；实现走 `document.execCommand` 以保住 `Ctrl+Z`。
+- **决定**：只用标准 Web API 的 `keydown`（挂在编辑器元素上，不挂 `document`），**不引** `tauri-plugin-global-shortcut`（它只留给「应用失焦也要响应」的全局热键，见 §3）；判定用 `e.code`、输入法组字中放行；实现走 `document.execCommand` 以保住 `Ctrl+Z`。
 - **为什么**：键位只有这两个、且只在编辑器内有意义，元素级监听天然随组件装卸；行操作必须可撤销，否则与「删除不确认、靠 undo 兜底」的既有约定冲突。键位与边界见 `design.md`，机制与实测见 `开发经验.md`。
 
 ### 6.6 当前行高亮与行内操作
@@ -179,14 +179,14 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
 7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
-9. **二期（可选）**：全局热键 `Ctrl+Alt+N`、更多 e2e 用例。
+9. 全局热键 `Ctrl+Alt+N`
 
 ## 10. 已确认的取舍
 
 1. `identifier` = `com.dnote.perphyyoung`。
 2. 窗口形态：**无边框**（自绘 header，与 cdown 一致）。
 3. 删除**不做**二次确认，删除即生效 —— 兜底是原生 `Ctrl+Z`：文本编辑之外，结构性编辑（`Ctrl+D` 删行、`Alt+↑/↓` 移行、行内「删除当前行」按钮、拖拽落盘）都走 `applyEdit`，都能撤回；`Ctrl+Y` / `Ctrl+Shift+Z` 重做同样精确（结构性编辑的重放由前端接管，浏览器对长多行的整篇替换重做有缺陷，见 `开发经验.md`）。
-4. **要托盘**；全局热键**后期再加**（`tauri-plugin-global-shortcut`，`Ctrl+Alt+N`），一期不引。
+4. **要托盘**；全局热键 `Ctrl+Alt+N`（`tauri-plugin-global-shortcut`）唤起 / 收回主窗口 —— 已实现，不支持重设键位。
 5. **允许空行**，空行不自动删除、原样存储与显示。
 6. **做单实例，但只保护 release**：正式构建同时只允许一个窗口、二次启动唤起已有窗口，也就不涉及并发写；debug 构建不抢锁，`pnpm dev` 可与常驻的 release 并存（锁键为 app identifier，两者本会撞锁）。
 7. 右上角最小化按钮用**半角减号 `-`**（与 cdown 对齐）。
@@ -194,5 +194,5 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 9. **dev 用通用「DEV」图标**（`scripts/gen-dev-icon.mjs` 生成）：不绑定本项目、可整段复制到别的项目；托盘与任务栏保持一致，release 才用应用自身图标。**e2e 不建托盘**（`DNOTE_NO_TRAY`），任务栏保留。
 10. **编辑器是一个 `<textarea>`**（不是每行一个 `<input>`）：编辑语义全部用浏览器原生 —— 回车在光标处断行（**行首回车即在当前位置插入新行**）、退格 / `Delete` 合并相邻两行、`↑↓` 行间移动、多行选区与复制、`Ctrl+Z` 撤销；应用只接管拖拽行排序与落盘。拖拽手感用「幽灵行 + 插入线 + 松手才换位」补回来（详见 `design.md` 与 `开发经验.md`）。
 11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。
-12. **应用内快捷键**：`Ctrl+D` 删除当前行、`Alt+↑/↓` 上下移动当前行（只按光标行、列保持）；用 Web API 的元素级监听，**不引** global-shortcut 插件；两者都必须能 `Ctrl+Z` 撤销。
+12. **应用内快捷键**：`Ctrl+D` 删除当前行、`Alt+↑/↓` 上下移动当前行（只按光标行、列保持）；用 Web API 的元素级监听，**不引** global-shortcut 插件（那是给全局热键用的，见 §3）；两者都必须能 `Ctrl+Z` 撤销。
 13. **行内操作**：高亮当前行（光标行，失焦即消失）；指针停在这一行时右侧浮出「复制当前行 / 删除当前行」（不占布局空间）；删除与 `Ctrl+D` 同一条实现、可撤销，复制只写剪贴板。
