@@ -194,14 +194,17 @@ pub fn run() {
                 }
             }
 
-            // 尺寸兜底：状态文件里可能存着被壳写坏的尺寸（Show Desktop 能把窗口几何写成
-            // 几十像素，且重启自锁 —— 见 `开发经验.md`），这里启动就修回默认尺寸，用户不必
-            // 手删状态文件。只能放在 `show()` 之后（show 前 `set_size` 会多算一个 caption 高）。
+            // 尺寸下限落到系统上：配置里的 `minWidth` / `minHeight` 会被 tao 当成**外框**下限
+            // 设出去，得自己补上那圈不可见边框，客户区才真的拖不到配置值以下（见 `apply_min_size`）。
+            if let Err(e) = commands::main_window::apply_min_size(&main_window) {
+                log_warn!("设置窗口最小尺寸失败：{e}");
+            }
+            // 再兜一道程序化改尺寸：系统下限管不住 `set_size`，状态文件里可能存着被壳写坏的
+            // 尺寸（Show Desktop 能把窗口几何写成几十像素，且重启自锁 —— 见 `开发经验.md`）。
+            // 只能放在 `show()` 之后（show 前 `set_size` 会多算一个 caption 高）。
             if let Err(e) = commands::main_window::ensure_min_size(&main_window) {
                 log_warn!("窗口尺寸兜底失败：{e}");
             }
-            // 运行中再兜一道：壳发起的改尺寸没有固定时机（实现与取舍见 `commands/main_window.rs`）
-            commands::main_window::watch_min_size(&main_window);
 
             // 日志插件仅 debug 构建注册（终端输出）；应用日志量小，release 不落盘
             if cfg!(debug_assertions) {

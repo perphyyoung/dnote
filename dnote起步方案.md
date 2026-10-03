@@ -55,7 +55,8 @@
 - **默认深色主题**：窗口 `"theme": "Dark"` + `"backgroundColor": [15, 23, 42, 255]`（slate-900，首帧之前也不闪白），CSS 侧 `:root { color-scheme: dark }` 让原生滚动条/光标/选区一并走深色。
   - 坑：这里必须写**大写 `"Dark"`**。`Theme` 的 JSON Schema 是 schemars 自动派生的、用的是变体名（`Light` / `Dark`），而 serde 反序列化是小写化后匹配（`"dark"` 也认）。CLI 先按 schema 校验，写小写会直接报 `"dark" is not valid under any of the schemas listed in the 'anyOf' keyword` 而启动失败。
 - **默认置顶**（`alwaysOnTop: true`），图钉按钮可切换（`core:window:allow-set-always-on-top`）；偏好存 localStorage（界面偏好，不进 `dnote.txt`）。
-- `skipTaskbar: true`（**工具窗口**）：不进任务栏、不进 Alt+Tab，唤回靠托盘与 header 的 `-` —— 与 cdown 对齐；更实际的理由是**任务栏按钮会招来 Show Desktop 把窗口几何写坏**（Win+D 后只剩标题条、重启不自愈，见 `开发经验.md`）。无透明背景、无多窗口。
+- `skipTaskbar: true`（**工具窗口**）：不占任务栏与 Alt+Tab，唤回靠托盘与 header 的 `-`（与 cdown 对齐）。选它不只是"少占一处"，任务栏按钮还会招来 Show Desktop 把窗口几何写坏（见 `开发经验.md`）。无透明背景、无多窗口。
+- **窗口下限按「客户区」理解**：配置里的 `minWidth: 260` / `minHeight: 200` 是客户区的下限，代码里补上那圈不可见缩放边框后再交给系统（`apply_min_size`，见 `开发经验.md`）—— 配置是唯一事实源，不在别处写死数字。
 
 ## 5. 存储与命令
 
@@ -152,7 +153,7 @@ dnote/
 
 Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`domain` 里只剩统一的命令错误类型。
 
-- `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐 + 尺寸兜底 `ensure_min_size` / `watch_min_size`），前端没有对应绑定；`main_window.test.rs` 只覆盖尺寸兜底的**纯计算**（真窗口那半边靠手工验收），文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
+- `commands/main_window.rs` 不是 `#[tauri::command]`（托盘与单例回调共用的窗口显隐 + 尺寸下限 `apply_min_size` / `ensure_min_size`），前端没有对应绑定；`main_window.test.rs` 只覆盖**纯计算**两段（外框下限与尺寸兜底，真窗口那半边靠手工验收），文件名叫 `main_window` 是为了避开 sentrux 后缀解析与 `@tauri-apps/api/window` 的重名（见 `开发经验.md`）。
 - `commands/notes.rs` 只是两条命令的薄包装，真正需要测的行编解码与原子写都在 `infra/store.rs`，测试集中在 `store.test.rs`。
 
 ## 8. 关键配置
