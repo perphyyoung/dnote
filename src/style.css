@@ -5,6 +5,9 @@
 /* 默认深色主题：让原生滚动条/光标/选区也走深色，避免浅色控件混进来 */
 :root {
   color-scheme: dark;
+  /* 笔记正文字号：设置面板覆盖（`features/settings/fontSize.ts` 写这个变量）。
+     textarea 与镜像测层都消费它 —— 两边必须永远同源，否则折行位置不同、手柄会系统性错位。 */
+  --note-font-size: 14px;
 }
 
 html,

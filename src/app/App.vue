@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
+import {
+  FONT_SIZE_DEFAULT,
+  FONT_SIZE_MAX,
+  FONT_SIZE_MIN,
+  fontSize,
+  setFontSize,
+} from "@/features/settings/fontSize";
 import { log } from "@/utils/logger";
 
 const { ready, error } = useNotes();
@@ -40,7 +47,25 @@ onMounted(() => {
   void applyPin(localStorage.getItem(PIN_KEY) !== "0");
 });
 
+/// 设置面板是否展开。收起入口统一走 `closeSettings`：点正文区、`Esc`、再点齿轮
+const settingsOpen = ref(false);
+
+function closeSettings(): void {
+  settingsOpen.value = false;
+}
+
+/// `Esc` 收起：这里挂 `document` 而不是元素级 —— 面板里只有滑块可聚焦，点面板空白处后焦点
+/// 不在任何元素上，元素级监听收不到。（编辑器那两个快捷键不同：它们只在编辑器内有意义，
+/// 才必须元素级、不挂 document。）
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (settingsOpen.value && e.code === "Escape") closeSettings();
+}
+
+onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
+onUnmounted(() => document.removeEventListener("keydown", onGlobalKeydown));
+
 function hideToTray() {
+  closeSettings(); // 顺手收起面板：收进托盘时不该留一个"展开着"的界面状态
   // 无边框窗口没有系统按钮，隐藏到托盘（core:window:allow-hide）
   void getCurrentWindow().hide();
 }
@@ -48,7 +73,7 @@ function hideToTray() {
 
 <template>
   <div
-    class="flex h-full flex-col bg-slate-900 text-slate-200"
+    class="relative flex h-full flex-col bg-slate-900 text-slate-200"
     role="application"
     aria-label="dnote 主窗口"
   >
@@ -108,6 +133,22 @@ function hideToTray() {
       </button>
       <button
         type="button"
+        class="flex h-6 w-6 items-center justify-center rounded transition"
+        :class="
+          settingsOpen
+            ? 'text-slate-200 hover:bg-slate-800'
+            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-200'
+        "
+        title="设置"
+        aria-label="设置"
+        aria-haspopup="dialog"
+        :aria-expanded="settingsOpen"
+        @click="settingsOpen = !settingsOpen"
+      >
+        ⚙
+      </button>
+      <button
+        type="button"
         class="flex h-6 w-6 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
         title="隐藏到托盘"
         @click="hideToTray"
@@ -115,6 +156,40 @@ function hideToTray() {
         -
       </button>
     </header>
+
+    <!-- 设置面板：在标题条**下方内嵌**弹出（不开独立窗口）。遮罩只盖标题栏以下 ——
+         于是面板开着时置顶与 `-` 照常可点，不必"先关面板再点"。 -->
+    <div
+      v-if="settingsOpen"
+      class="absolute inset-x-0 top-8 bottom-0 z-30"
+      @pointerdown="closeSettings"
+    >
+      <div
+        class="absolute right-2 top-1 w-56 space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-3 shadow-xl"
+        role="dialog"
+        aria-label="设置"
+        @pointerdown.stop
+      >
+        <div class="flex items-baseline justify-between">
+          <p class="text-xs text-slate-300">字体大小</p>
+          <span class="text-xs tabular-nums text-slate-400">{{ fontSize }}px</span>
+        </div>
+        <input
+          type="range"
+          :min="FONT_SIZE_MIN"
+          :max="FONT_SIZE_MAX"
+          step="1"
+          aria-label="笔记字体大小"
+          class="w-full accent-slate-400"
+          :value="fontSize"
+          @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
+        />
+        <p class="text-[11px] leading-snug text-slate-500">
+          笔记正文（{{ FONT_SIZE_MIN }}–{{ FONT_SIZE_MAX }}px），默认
+          {{ FONT_SIZE_DEFAULT }}，拖动即时生效
+        </p>
+      </div>
+    </div>
 
     <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
     <main class="min-h-0 flex-1">

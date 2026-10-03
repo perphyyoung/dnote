@@ -50,7 +50,7 @@
 
 - 主窗口 label `main`，约 360×480（可缩放，`minWidth: 260 / minHeight: 200`）——像一张小纸条，够长即可。
 - **无边框**（`decorations: false`）+ 顶部 `data-tauri-drag-region` 拖动区（需 `core:window:allow-start-dragging`）。
-- 顶部只有一条极窄 header：**应用图标 + `dnote` 名称** + 拖动区 + 置顶图钉 + 右上角最小化按钮（图标复用 favicon 那份 `public/icon.png`，不另画）；无边框下没有系统按钮，隐藏/退出都靠这里与托盘（`core:window:allow-hide`）。
+- 顶部只有一条极窄 header：**应用图标 + `dnote` 名称** + 拖动区 + 置顶图钉 + **设置 `⚙`** + 右上角最小化按钮（图标复用 favicon 那份 `public/icon.png`，不另画；设置是标题条下方**内嵌弹出**的面板，不开独立窗口，见 `design.md`）；无边框下没有系统按钮，隐藏/退出都靠这里与托盘（`core:window:allow-hide`）。
 - 右上角最小化按钮**用半角减号 `-`**（位置与样式与 cdown 对齐，仅字符换成半角）。
 - **默认深色主题**：窗口 `"theme": "Dark"` + `"backgroundColor": [15, 23, 42, 255]`（slate-900，首帧之前也不闪白），CSS 侧 `:root { color-scheme: dark }` 让原生滚动条/光标/选区一并走深色。
   - 坑：这里必须写**大写 `"Dark"`**。`Theme` 的 JSON Schema 是 schemars 自动派生的、用的是变体名（`Light` / `Dark`），而 serde 反序列化是小写化后匹配（`"dark"` 也认）。CLI 先按 schema 校验，写小写会直接报 `"dark" is not valid under any of the schemas listed in the 'anyOf' keyword` 而启动失败。
@@ -177,7 +177,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts`（整份文本 + 落盘）→ `NoteEditor.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）、设置面板与字号（12）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. 全局热键 `Ctrl+Alt+N`
 

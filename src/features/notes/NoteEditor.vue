@@ -708,8 +708,9 @@ function flashDropped(index: number): void {
          relative z-10：压在背景装饰层之上、又在手柄层之下，文字因此不会被高亮染色。 -->
     <textarea
       ref="editor"
-      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-600"
+      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
       :style="{
+        fontSize: 'var(--note-font-size)',
         lineHeight: `${ROW_H}px`,
         height: `${editorHeight}px`,
         padding: `${PAD_TOP}px 6px ${PAD_BOTTOM}px ${HANDLE_W + 2}px`,
@@ -727,14 +728,16 @@ function flashDropped(index: number): void {
     <!-- 镜像测层：textarea 的 value 不在 DOM 里、问不出它的逐行排版，所以在这里放一个**同框同字体**
          的不可见副本，每个逻辑行一个 block —— 折行后的行盒（上沿 / 总高）全从它读（`measure()`）。
          invisible 仍参与排版、绝对定位不占流，所以既量得准，又不影响滚动高度。
-         它必须与 textarea 共用同一批常量与同一套折行属性，否则手柄会系统性错位
-         —— e2e `09` 有一条「镜像总高 ≈ textarea 内容高」的护栏盯着这件事。 -->
+         它必须与 textarea 共用同一批常量、同一套折行属性**与同一个字号**（`--note-font-size`，
+         设置面板能改），否则手柄会系统性错位 —— e2e `09` 有一条「镜像总高 ≈ textarea 内容高」
+         的护栏盯着这件事，`12` 还会在改字号后再核对一次。 -->
     <div
       ref="mirror"
       data-mirror
       aria-hidden="true"
-      class="invisible pointer-events-none absolute inset-x-0 top-0 break-words whitespace-pre-wrap text-sm"
+      class="invisible pointer-events-none absolute inset-x-0 top-0 break-words whitespace-pre-wrap"
       :style="{
+        fontSize: 'var(--note-font-size)',
         lineHeight: `${ROW_H}px`,
         padding: `${PAD_TOP}px 6px ${PAD_BOTTOM}px ${HANDLE_W + 2}px`,
       }"
@@ -769,7 +772,10 @@ function flashDropped(index: number): void {
     >
       ⠿
     </span>
-    <span class="min-w-0 flex-1 truncate px-1 text-sm text-slate-100">
+    <span
+      class="min-w-0 flex-1 truncate px-1 text-slate-100"
+      :style="{ fontSize: 'var(--note-font-size)' }"
+    >
       {{ lines[drag.originIndex] ?? "" }}
     </span>
   </div>
