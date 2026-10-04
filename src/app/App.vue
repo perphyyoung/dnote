@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
@@ -12,11 +12,19 @@ import {
 } from "@/features/settings/background";
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontSize, setFontSize } from "@/features/settings/fontSize";
 import {
+  FOREGROUND_DEFAULT,
+  foregroundColor,
+  resetForegroundColor,
+  setForegroundColor,
+} from "@/features/settings/foreground";
+import {
   LINE_HEIGHT_MAX,
   LINE_HEIGHT_MIN,
   lineHeightRatio,
   setLineHeightRatio,
 } from "@/features/settings/lineHeight";
+import type { Theme } from "@/features/settings/themes";
+import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
 import { log } from "@/utils/logger";
 
 const { ready, error } = useNotes();
@@ -62,6 +70,34 @@ const appVersion = __APP_VERSION__;
 
 /// 设置面板是否展开。收起入口统一走 `closeSettings`：点正文区、`Esc`、再点齿轮
 const settingsOpen = ref(false);
+
+/// 点一组推荐：把前景与背景**一起**设好（连着两次 setter，没有第三份状态、也就没有隐藏联动）。
+/// 之后照样能用两个取色器各自微调 —— 那是"自定义"，`currentThemeName` 会自动变成 `null`。
+function applyTheme(theme: Theme) {
+  setForegroundColor(theme.fg);
+  setBackgroundColor(theme.bg);
+}
+
+/// 下拉里选了一档：按名字找回那一组再应用。`value` 用名字而不是颜色 —— 选项文本要显示中文名，
+/// 而"两个颜色"本身已经由两个偏好各自记着，没必要再往 `value` 里塞一份。
+function onThemeChange(name: string) {
+  const theme = THEMES.find((item) => item.name === name);
+  if (theme) applyTheme(theme);
+}
+
+/// 当前两个颜色恰好等于哪一组推荐（都不是就是"自定义"，下拉里显示「自定义」这一项）。
+/// 它是**算出来的**，不是存下来的状态 —— 「颜色搭配」只是批量写前景 / 背景，没有第三份事实源。
+const currentThemeName = computed(
+  () => matchTheme(foregroundColor.value, backgroundColor.value)?.name ?? null,
+);
+
+/// 笔记区的 `color-scheme` 跟着底色亮度走：浅色搭配下光标 / 滚动条 / 选区才是浅色那一套。
+/// 只改笔记区这一层 —— 标题条与设置面板始终是深色外观，所以不把 `:root` 的 dark 换掉。
+const noteColorScheme = computed(() =>
+  contrastRatio("#ffffff", backgroundColor.value) < contrastRatio("#000000", backgroundColor.value)
+    ? "light"
+    : "dark",
+);
 
 function closeSettings(): void {
   settingsOpen.value = false;
@@ -248,6 +284,61 @@ function hideToTray() {
           </div>
         </div>
 
+        <!-- 前景颜色：与「背景颜色」同款（取色器 + 非默认时出现「重置」）。它喂 `--note-fg`，
+             正文 / 镜像 / 左槽标记（续行箭头、手柄）与各种色罩都跟着它走 —— 浅色搭配下这些
+             才不至于消失或发脏（见 `features/settings/foreground.ts`）。 -->
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-300">前景颜色</p>
+          <div class="flex items-center gap-2">
+            <input
+              type="color"
+              aria-label="前景颜色"
+              class="h-7 w-10 cursor-pointer rounded bg-slate-800"
+              :value="foregroundColor"
+              @input="setForegroundColor(($event.target as HTMLInputElement).value)"
+            />
+            <button
+              v-if="foregroundColor !== FOREGROUND_DEFAULT"
+              type="button"
+              class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+              aria-label="重置前景颜色"
+              @click="resetForegroundColor"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+
+        <!-- 颜色搭配推荐：下拉菜单，**每个选项用它自己那套颜色渲染**（名字 + 该组的底 / 字色），
+             展开就能一眼看出每档长什么样；收起时这个控件本身也按当前两个颜色画，等于一小片预览。
+             选一档 = 把前景与背景**一起**设好（没有隐藏联动，之后照样能用上面两个取色器各自微调）；
+             两个颜色都不等于任何一档时，选中项是「自定义」。 -->
+        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">颜色搭配推荐</p>
+          <select
+            aria-label="颜色搭配推荐"
+            class="h-7 w-20 cursor-pointer truncate rounded px-1 text-xs"
+            :style="{
+              color: foregroundColor,
+              backgroundColor: backgroundColor,
+              colorScheme: noteColorScheme,
+            }"
+            :value="currentThemeName ?? ''"
+            @change="onThemeChange(($event.target as HTMLSelectElement).value)"
+          >
+            <!-- 只在两个颜色都不等于任何一档时出现：它是**当前选中的那项**，不是可选项 -->
+            <option v-if="currentThemeName === null" value="">自定义</option>
+            <option
+              v-for="theme in THEMES"
+              :key="theme.name"
+              :value="theme.name"
+              :style="{ color: theme.fg, backgroundColor: theme.bg }"
+            >
+              {{ theme.name }}
+            </option>
+          </select>
+        </div>
+
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
           <p class="text-xs text-slate-300">开机自启</p>
           <!-- 开关样式与角色照 cdown 的 SettingsToggle：点击直接上报，失败由上层回滚 -->
@@ -276,7 +367,7 @@ function hideToTray() {
     </div>
 
     <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
-    <main class="min-h-0 flex-1">
+    <main class="min-h-0 flex-1" :style="{ colorScheme: noteColorScheme }">
       <NoteEditor v-if="ready" :font-size="fontSize" :line-height-ratio="lineHeightRatio" />
     </main>
 

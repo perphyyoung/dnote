@@ -560,9 +560,14 @@ function flashDropped(index: number): void {
            折行时覆盖**整个行盒**（一行的排版块有多高就铺多高）。 -->
       <div
         v-if="caretIndex !== null && drag === null"
-        class="absolute inset-x-0 border-l-2 border-slate-500 bg-slate-800/40"
+        class="absolute inset-x-0 border-l-2"
         :data-caret-line="caretIndex"
-        :style="{ top: `${boxTop(caretIndex)}px`, height: `${boxHeight(caretIndex)}px` }"
+        :style="{
+          borderColor: 'var(--note-fg-faint)',
+          backgroundColor: 'var(--note-fg-veil)',
+          top: `${boxTop(caretIndex)}px`,
+          height: `${boxHeight(caretIndex)}px`,
+        }"
       />
     </div>
 
@@ -578,8 +583,10 @@ function flashDropped(index: number): void {
       <div
         v-if="drag"
         data-drag-source
-        class="absolute inset-x-0 border-y border-dashed border-slate-600/70 bg-slate-800/40"
+        class="absolute inset-x-0 border-y border-dashed"
         :style="{
+          borderColor: 'var(--note-fg-faint)',
+          backgroundColor: 'var(--note-fg-veil)',
           top: `${boxTop(drag.originIndex)}px`,
           height: `${boxHeight(drag.originIndex)}px`,
         }"
@@ -598,8 +605,9 @@ function flashDropped(index: number): void {
         v-for="top in continuationArrowTops"
         :key="top"
         data-continuation-arrow
-        class="pointer-events-none absolute text-[10px] text-slate-200"
+        class="pointer-events-none absolute text-[10px]"
         :style="{
+          color: 'var(--note-fg)',
           top: `${top}px`,
           left: '0px',
           width: `${HANDLE_W}px`,
@@ -617,9 +625,10 @@ function flashDropped(index: number): void {
         v-for="(_, index) in lines"
         :key="index"
         type="button"
-        class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center text-slate-600 transition-opacity active:cursor-grabbing"
+        class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center transition-opacity active:cursor-grabbing"
         :class="index === hoverIndex || index === drag?.originIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
+          color: 'var(--note-fg-faint)',
           top: `${boxTop(index)}px`,
           height: `${ROW_H}px`,
           width: `${HANDLE_W}px`,
@@ -647,7 +656,7 @@ function flashDropped(index: number): void {
       >
         <button
           type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-slate-900/80 text-slate-500 transition hover:bg-slate-700 hover:text-slate-200"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-fg-veil)] text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-weak)] hover:text-[var(--note-fg)]"
           aria-label="复制当前行"
           title="复制当前行"
           @mousedown.prevent
@@ -726,8 +735,10 @@ function flashDropped(index: number): void {
          relative z-10：压在背景装饰层之上、又在手柄层之下，文字因此不会被高亮染色。 -->
     <textarea
       ref="editor"
-      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent text-slate-200 outline-none placeholder:text-slate-600"
+      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent outline-none placeholder:text-slate-600"
       :style="{
+        color: 'var(--note-fg)',
+        caretColor: 'var(--note-fg)',
         fontSize: 'var(--note-font-size)',
         lineHeight: `${ROW_H}px`,
         height: `${editorHeight}px`,
@@ -755,6 +766,7 @@ function flashDropped(index: number): void {
       aria-hidden="true"
       class="invisible pointer-events-none absolute inset-x-0 top-0 break-words whitespace-pre-wrap"
       :style="{
+        color: 'var(--note-fg)',
         fontSize: 'var(--note-font-size)',
         lineHeight: `${ROW_H}px`,
         padding: `${PAD_TOP}px 6px ${PAD_BOTTOM}px ${HANDLE_W + 2}px`,
@@ -776,7 +788,7 @@ function flashDropped(index: number): void {
   <div
     v-if="drag"
     data-drag-ghost
-    class="pointer-events-none fixed z-50 flex items-center rounded bg-slate-800/90 shadow-xl ring-1 ring-slate-700"
+    class="pointer-events-none fixed z-50 flex items-center rounded bg-[var(--note-bg)] shadow-xl ring-1 ring-[var(--note-fg-weak)]"
     :style="{
       top: `${drag.pointerY - drag.grabOffset}px`,
       left: `${drag.ghostLeft}px`,
@@ -785,13 +797,13 @@ function flashDropped(index: number): void {
     }"
   >
     <span
-      class="flex shrink-0 justify-center text-slate-500"
+      class="flex shrink-0 justify-center text-[var(--note-fg-faint)]"
       :style="{ width: `${HANDLE_W + 2}px` }"
     >
       ⠿
     </span>
     <span
-      class="min-w-0 flex-1 truncate px-1 text-slate-100"
+      class="min-w-0 flex-1 truncate px-1 text-[var(--note-fg)]"
       :style="{ fontSize: 'var(--note-font-size)' }"
     >
       {{ lines[drag.originIndex] ?? "" }}

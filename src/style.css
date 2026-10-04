@@ -11,6 +11,27 @@
   /* 笔记区底色：设置面板覆盖（`features/settings/background.ts`）。只给外壳用，
      标题条 / 面板 / 拖拽层等界面 chrome 各有自己的 slate 色，不跟它走。 */
   --note-bg: #0f172a;
+  /* 笔记正文前景：设置面板覆盖（`features/settings/foreground.ts`）。正文、镜像、左槽标记
+     （续行箭头 / 手柄）与下面那些色罩全读它 —— 一套搭配要深浅都能用，这些就不能写死 slate。 */
+  --note-fg: #e2e8f0;
+  /* 由前景派生的**弱化色**：写在一处，改前景时全部跟着变（浅色搭配下标记才不会消失 / 发脏）。
+     半透明一律走颜色的 alpha（`color-mix` 收尾给 `transparent`），不用 `opacity-*` —— 那会把
+     文字与描边一起变淡，还多生成一个叠层上下文（见 design.md「叠层」）。 */
+  --note-fg-faint: color-mix(
+    in srgb,
+    var(--note-fg) 45%,
+    transparent
+  ); /* 手柄、高亮左线、源行罩虚线 */
+  --note-fg-weak: color-mix(
+    in srgb,
+    var(--note-fg) 20%,
+    transparent
+  ); /* 行按钮 hover、幽灵行描边 */
+  --note-fg-veil: color-mix(
+    in srgb,
+    var(--note-fg) 8%,
+    transparent
+  ); /* 当前行高亮罩、源行罩、行按钮底 */
 }
 
 html,
