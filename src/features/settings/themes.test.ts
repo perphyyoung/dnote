@@ -10,14 +10,14 @@ describe("颜色搭配推荐", () => {
   it("每组正文对比度都够（柔灰按它自己那档门槛）", () => {
     for (const theme of THEMES) {
       const floor = theme.name === LOW_CONTRAST_THEME ? LOW_FLOOR : FLOOR;
-      expect(contrastRatio(theme.fg, theme.bg), `${theme.name} 的对比度`).toBeGreaterThanOrEqual(
-        floor,
-      );
+      const ratio = contrastRatio(theme.fg, theme.bg);
+      // 消息里带上实测值：不达标时一眼看出差多少，好评估是调色还是放宽门槛
+      expect(ratio, `${theme.name} 的对比度 ${ratio.toFixed(1)}:1`).toBeGreaterThanOrEqual(floor);
     }
   });
 
-  it("刚好十组（面板是 2×5 网格，改数量要同时改网格）", () => {
-    expect(THEMES.length).toBe(10);
+  it("刚好二十组（面板是单列可滚动列表，改数量不必动布局）", () => {
+    expect(THEMES.length).toBe(20);
   });
 
   it("名字唯一：面板与 e2e 都按名字定位", () => {
@@ -32,12 +32,10 @@ describe("颜色搭配推荐", () => {
     }
   });
 
-  it("深浅都有：至少三组深底、三组浅底", () => {
-    const dark = THEMES.filter(
-      (theme) => contrastRatio("#ffffff", theme.bg) > contrastRatio("#000000", theme.bg),
-    );
-    expect(dark.length).toBeGreaterThanOrEqual(3);
-    expect(THEMES.length - dark.length).toBeGreaterThanOrEqual(3);
+  it("前 10 档深色、后 10 档浅色（列表里就是深色一段、浅色一段）", () => {
+    const isDark = (bg: string) => contrastRatio("#ffffff", bg) > contrastRatio("#000000", bg);
+    expect(THEMES.slice(0, 10).every((theme) => isDark(theme.bg))).toBe(true);
+    expect(THEMES.slice(10).every((theme) => !isDark(theme.bg))).toBe(true);
   });
 
   it("matchTheme 只在两个颜色都相等时命中（两组撞色也会被这条抓到）", () => {

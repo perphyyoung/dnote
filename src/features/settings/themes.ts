@@ -26,18 +26,35 @@ export interface Theme {
 /** 「柔灰」是故意压低的对比度（7:1 的下限对它豁免），别的组都按 7:1 卡 */
 export const LOW_CONTRAST_THEME = "柔灰";
 
-/** 十组推荐；顺序就是下拉里的顺序，**第一档与默认配色一致**（打开就是它被选中） */
+/**
+ * 二十组推荐；顺序就是下拉里的顺序，**第一档与默认配色一致**（打开就是它被选中）。
+ * 排布：前 10 档深色、后 10 档浅色 —— 单列列表里读起来就是"深色一段、浅色一段"，
+ * 想换"浅色系"往下翻一屏就够，不用在深浅之间来回跳。
+ * 每组的对比度由 `themes.test.ts` 现算（≥7:1，柔灰豁免到 6.5:1），表里不手抄数字。
+ */
 export const THEMES: readonly Theme[] = [
+  // 深色系
   { name: "柔灰", fg: "#94a3b8", bg: "#0f172a" },
   { name: "墨蓝", fg: "#e2e8f0", bg: "#0f172a" },
   { name: "深灰", fg: "#cbd5e1", bg: "#1e293b" },
+  { name: "碳灰", fg: "#e5e7eb", bg: "#18181b" },
   { name: "藏蓝", fg: "#dbeafe", bg: "#172554" },
-  { name: "暖褐", fg: "#e7e5e4", bg: "#1c1917" },
+  { name: "紫夜", fg: "#ede9fe", bg: "#2e1065" },
   { name: "墨绿", fg: "#d1fae5", bg: "#052e16" },
+  { name: "终端绿", fg: "#86efac", bg: "#0a0a0a" },
+  { name: "暖褐", fg: "#e7e5e4", bg: "#1c1917" },
+  { name: "焦糖", fg: "#ffedd5", bg: "#431407" },
+  // 浅色系
   { name: "冷白", fg: "#1e293b", bg: "#f8fafc" },
   { name: "浅灰", fg: "#334155", bg: "#f1f5f9" },
+  { name: "天青", fg: "#0c4a6e", bg: "#f0f9ff" },
+  { name: "青灰", fg: "#134e4a", bg: "#f0fdfa" },
   { name: "米色", fg: "#3f3a34", bg: "#f7f3ea" },
+  { name: "琥珀", fg: "#713f12", bg: "#fffbeb" },
+  { name: "秋叶", fg: "#7c2d12", bg: "#fff7ed" },
+  { name: "藕荷", fg: "#4c1d95", bg: "#f5f3ff" },
   { name: "豆沙绿", fg: "#2b3a2f", bg: "#c7edcc" },
+  { name: "樱粉", fg: "#831843", bg: "#fdf2f8" },
 ];
 
 /** 当前的前景 / 背景恰好等于哪一组；都不是就是"自定义"（返回 `null`） */

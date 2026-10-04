@@ -15,7 +15,7 @@
 - 状态：模块级 composable 单例（抄 cdown `useCountdown.ts` 模式），不引 pinia。
 - 后端：Tauri 2.12 + tauri-specta rc.25 三件套（命令签名单一事实源）。
 - 存储：纯文本文件 `dnote.txt`，一行一条笔记。
-- 主题：默认深色（窗口 `theme: "Dark"` + slate-900 底色）。
+- 主题：窗口本身固定深色外观（`theme: "Dark"` + slate-900），笔记区的前景 / 背景可在设置面板里换，另附二十档颜色搭配推荐（含深色与浅色系，见 `design.md`「主题」）。
 - 测试：vitest 测拖拽下标计算与粘贴拆行；cargo test 测文本行读写；e2e 用 Playwright 经 CDP 连真实调试二进制，覆盖跨端链路。
 
 ## 3. 依赖取舍（相对 cdown，按需裁剪）
@@ -179,7 +179,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 4. **前端**：先写 `logic.ts` + `logic.test.ts`（拖拽下标）→ `useNotes.ts`（整份文本 + 落盘）→ `NoteEditor.vue` / `App.vue`。
 5. **桌面集成**：单实例（最先注册，仅 release 构建）、窗口状态持久化与恢复、托盘（显示/隐藏、退出；`DNOTE_NO_TRAY` 时不建）、header 的 `-` 隐藏按钮。
 6. **质量门**：`pnpm check` 跑通一次 → `sentrux check .` 分层校验通过 → `pnpm dev` 手工验收（重点验拖拽手感、回车断行（行首 / 行中 / 行尾）、退格合并、空行保持、重启后顺序保持）。
-7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）、设置面板（12：字号 / 底色 / 开机自启）；`typecheck` 纳入 `e2e/tsconfig.json`。
+7. **e2e**：Playwright + CDP 骨架（`e2e-helpers.ts` / `e2e-logger.ts` / `global-setup.ts` / 配置）——默认 4 worker、**每文件一个实例（file 级 scope）**、用例名与耗时的分节日志、剪贴板等整机唯一资源用 `withClipboard()` 串行；用例覆盖多行粘贴（01）、多行选择 / 复制（02）、置顶（03）、回车断行（04）、拖拽调序（05）、编辑器快捷键（06）、当前行行内操作（07）、点最后一行下方（08）、长行折行（09）、折行的视觉反馈（10）、标题条图标与拖动区（11）、设置面板（12：字号 / 行高比 / 前景颜色 / 背景颜色 / 颜色搭配推荐 / 开机自启）；`typecheck` 纳入 `e2e/tsconfig.json`。
 8. **文档**：`README.md`（使用与上手）、`design.md`（UI/交互硬约定）、`日志使用说明.md`（日志位置、级别开关与 e2e 日志）、`开发经验.md`（踩过的坑）、`AGENTS.md`（给 AI 协作者的规则与环境要点）、`.rules/git提交信息规范.md`（提交格式）。
 9. 全局热键 `Ctrl+Alt+N`
 
