@@ -332,10 +332,14 @@ function hideToTray() {
             @change="onThemeChange(($event.target as HTMLSelectElement).value)"
           >
             <!-- 触发器：base-select 下要**显式**写这个按钮（隐式按钮不可样式化），见 `style.css`。
+                 这里写成 `<component is="button">` 而不是直写 `<button>`：Vue 编译器的 HTML 嵌套校验
+                 还没跟上可定制 select 的新规范，会误报「button cannot be child of select」
+                 （vuejs/core#13608、vite-plugin-vue#828，都还开着、也没有开关）。动态组件不走那条
+                 静态标签校验，渲染出来仍是原生 `<button>` —— 所以 `style.css` 里照旧按 `> button` 选中它。
                  不支持的运行时整段被忽略，照旧回退成经典 select。 -->
-            <button>
+            <component is="button">
               <selectedcontent></selectedcontent>
-            </button>
+            </component>
             <!-- 只在两个颜色都不等于任何一档时出现：它是**当前选中的那项**，不是可选项 -->
             <option v-if="currentThemeName === null" value="">自定义</option>
             <option
