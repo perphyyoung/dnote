@@ -6,10 +6,15 @@
  * 所以这里也带一条"没有行号"的守护，免得以后又长回来。
  */
 import { expect } from "@playwright/test";
-import { dragLineWith, hoverRow, lineHandles, mirrorBoxes, seedLines, test } from "./e2e-helpers";
-
-// 与 `NoteEditor.vue` 一致（跨语言无法共享，改了要同步）
-const ROW_H = 28;
+import {
+  dragLineWith,
+  hoverRow,
+  lineHandles,
+  mirrorBoxes,
+  rowHeight,
+  seedLines,
+  test,
+} from "./e2e-helpers";
 
 /// 够长到任何窗口宽度下都折行（详见 09 的说明）
 const LONG =
@@ -19,9 +24,9 @@ const LONG =
 
 const NOTE = ["第一行", LONG, "第三行"];
 
-/// 第 index 行占几个视觉行
-function spanOf(height: number): number {
-  return Math.max(1, Math.round(height / ROW_H));
+/// 第 index 行占几个视觉行（行高从页面读，见 `rowHeight`）
+function spanOf(height: number, rowH: number): number {
+  return Math.max(1, Math.round(height / rowH));
 }
 
 test.describe("折行的视觉反馈", () => {
@@ -30,8 +35,9 @@ test.describe("折行的视觉反馈", () => {
   });
 
   test("续行拐弯箭头：每个续行前一个，位置对齐各续行，且常显", async ({ page }) => {
+    const rowH = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
-    const span = spanOf(boxes[1].height);
+    const span = spanOf(boxes[1].height, rowH);
     expect(span).toBeGreaterThan(1); // 前提：这一行确实折了
 
     const arrows = page.locator("[data-continuation-arrow]");
@@ -39,7 +45,7 @@ test.describe("折行的视觉反馈", () => {
     for (let row = 1; row < span; row += 1) {
       const box = await arrows.nth(row - 1).boundingBox();
       if (!box) throw new Error(`取不到第 ${row} 个拐弯箭头`);
-      expect(Math.abs(box.y - (boxes[1].top + row * ROW_H))).toBeLessThanOrEqual(1);
+      expect(Math.abs(box.y - (boxes[1].top + row * rowH))).toBeLessThanOrEqual(1);
     }
 
     // 常显：指针不在这两行上也看得见（此时手柄是收起的）
@@ -49,8 +55,9 @@ test.describe("折行的视觉反馈", () => {
   });
 
   test("两种左槽标记共用同一条竖中线：箭头与手柄的水平中心重合", async ({ page }) => {
+    const rowH = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
-    const span = spanOf(boxes[1].height);
+    const span = spanOf(boxes[1].height, rowH);
     expect(span).toBeGreaterThan(1); // 前提：这一行确实折了，才有续行箭头可比
 
     // 箭头与手柄是同一套盒子（`width: HANDLE_W` + 水平居中），所以**盒子中心就是字形中心**。
@@ -65,6 +72,7 @@ test.describe("折行的视觉反馈", () => {
   });
 
   test("拖拽时源块带虚线上下沿，高度就是这一块的高度", async ({ page }) => {
+    const rowH = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
     await dragLineWith(page, 1, 2, async () => {
       const source = page.locator("[data-drag-source]");
@@ -73,7 +81,7 @@ test.describe("折行的视觉反馈", () => {
       const box = await source.boundingBox();
       if (!box) throw new Error("取不到源块");
       expect(Math.abs(box.height - boxes[1].height)).toBeLessThanOrEqual(1);
-      expect(box.height).toBeGreaterThan(ROW_H * 1.5); // 前提：源块是折行的高块
+      expect(box.height).toBeGreaterThan(rowH * 1.5); // 前提：源块是折行的高块
     });
   });
 
@@ -102,10 +110,11 @@ test.describe("折行的视觉反馈", () => {
     await seedLines(app, page, ["第一行", "第二行", "第三行"]);
     await expect(page.locator("[data-continuation-arrow]")).toHaveCount(0);
 
+    const rowH = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
     const handle = await lineHandles(page).nth(1).boundingBox();
     if (!handle) throw new Error("取不到第二行手柄");
     expect(Math.abs(handle.y - boxes[1].top)).toBeLessThanOrEqual(1);
-    expect(Math.abs(handle.height - ROW_H)).toBeLessThanOrEqual(1);
+    expect(Math.abs(handle.height - rowH)).toBeLessThanOrEqual(1);
   });
 });

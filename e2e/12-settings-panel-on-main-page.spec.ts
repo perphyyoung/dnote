@@ -3,15 +3,15 @@
  * 与笔记区底色。
  *
  * 两条口径：
- * - 动字号只改文字、不改行高（`ROW_H` 恒 28，对齐 cdown）—— 所以镜像与 textarea 必须**同字号**，
- *   否则折行位置不同、手柄会系统性错位。这里照 `09` 的护栏口径再核对一次
- *   「镜像总高 ≈ textarea 内容高」。
- * - 两个偏好都存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
+ * - 字号同时决定**行高**（按一个比例派生，比例常量在 `NoteEditor.vue`）—— 所以镜像与 textarea
+ *   必须**同字号**，否则折行位置不同、手柄会系统性错位。这里照 `09` 的护栏口径再核对一次
+ *   「镜像总高 ≈ textarea 内容高」；行高与字号的比例另有一条用例盯着。
+ * - 三个偏好都存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
  *   profile，所以用例结束**必须复位**，否则会污染 09/10 的几何断言。
  */
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { seedLines, test } from "./e2e-helpers";
+import { rowHeight, seedLines, test } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
 const DEFAULT_SIZE = "14px";
@@ -124,6 +124,19 @@ test.describe("设置面板", () => {
     await toggle().click();
     await expect(toggle()).toHaveAttribute("aria-checked", "true");
     expect(await page.evaluate(() => localStorage.getItem("dnote:autostart"))).toBe("1");
+  });
+
+  test("行高跟随字号按比例变化", async ({ page }) => {
+    const atDefault = await rowHeight(page);
+
+    await gear(page).click();
+    await slider(page).fill("20");
+    const atLarge = await rowHeight(page);
+
+    // 不写死比例（那是 `NoteEditor.vue` 的调节点，谁都可以改）：只要求"跟着字号走、且近似成正比"，
+    // 取整带来的误差留 5% 余量。
+    expect(atLarge).toBeGreaterThan(atDefault);
+    expect(Math.abs(atLarge / atDefault - 20 / 14)).toBeLessThan(0.05);
   });
 
   test("面板最底下一行显示版本号", async ({ page }) => {

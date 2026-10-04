@@ -261,6 +261,17 @@ export function lineHandles(page: Page): Locator {
   return page.getByRole("button", { name: "拖拽调整顺序" });
 }
 
+/// 当前行高（px）：读 textarea 的**计算样式**，别在用例里写死。
+/// 行高由正文字号按比例派生，而字号用户可改、也会被同一 worker 的其它 spec 留下痕迹
+/// （共用一份 WebView profile），写死既会过期又会随机器状态飘。
+export async function rowHeight(page: Page): Promise<number> {
+  return editor(page).evaluate((el) => {
+    const value = Number.parseFloat(getComputedStyle(el).lineHeight);
+    if (!Number.isFinite(value)) throw new Error("取不到行高：line-height 不是 px 值");
+    return value;
+  });
+}
+
 /// 光标在编辑器里的 offset：断言快捷键把光标落在哪儿时用
 export function caretPosition(page: Page): Promise<number> {
   return editor(page).evaluate((el) => (el as HTMLTextAreaElement).selectionStart);

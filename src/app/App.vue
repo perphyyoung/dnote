@@ -249,7 +249,7 @@ function hideToTray() {
 
     <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
     <main class="min-h-0 flex-1">
-      <NoteEditor v-if="ready" />
+      <NoteEditor v-if="ready" :font-size="fontSize" />
     </main>
 
     <footer

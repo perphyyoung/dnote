@@ -15,12 +15,14 @@ import {
   expectPersistedLines,
   lineHandles,
   mirrorBoxes,
+  rowHeight,
   seedLines,
   test,
 } from "./e2e-helpers";
 
-// 这三个常量与 `NoteEditor.vue` 一致（跨语言无法共享，改了要同步）
-const ROW_H = 28;
+// 上下留白与 `NoteEditor.vue` 一致（跨语言无法共享，改了要同步）。
+// **行高不写死**：它由字号按比例派生，字号用户可改、也会被同 worker 的其它 spec 留下痕迹，
+// 所以一律用 `rowHeight(page)` 从页面读。
 const PAD_TOP = 8;
 const PAD_BOTTOM = 16;
 
@@ -53,6 +55,7 @@ test.describe("长行折行后的排版几何", () => {
   });
 
   test("折行行的手柄只在首个视觉行：一个行高、贴着块的上沿", async ({ page }) => {
+    const ROW_H = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
     expect(boxes).toHaveLength(3);
     expect(boxes[1].height).toBeGreaterThan(ROW_H * 1.5); // 前提：这一行确实折了
@@ -129,6 +132,7 @@ test.describe("长行折行后的排版几何", () => {
     const short = ["第一行", "第二行", "第三行"];
     await seedLines(app, page, short);
 
+    const ROW_H = await rowHeight(page);
     const boxes = await mirrorBoxes(page);
     for (const [index, box] of boxes.entries()) {
       expect(Math.abs(box.height - ROW_H)).toBeLessThanOrEqual(1);

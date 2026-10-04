@@ -16,9 +16,23 @@ import { log } from "@/utils/logger";
 
 const { content, lines } = useNotes();
 
+/** 正文字号（px），由外壳从设置偏好传入 —— 行高与它联动，见 `LINE_HEIGHT` */
+const props = defineProps<{ fontSize: number }>();
+
+/**
+ * 行高 = 字号 × 这个比例。**行高必须跟着字号走**：写死一个行高时，默认字号下的行距会松到
+ * 两倍上下，同屏白白少显示近三成行；而字号调大时又反过来变紧。
+ *
+ * 比例是唯一的调节点，想让整页更松/更紧改这里即可（**别写进文档**，文档只说"按比例派生"）。
+ * 仍以 px 整数喂给 textarea 与镜像（`Math.round`），不用无单位的 `line-height: 1.5` ——
+ * 那样浏览器会算出 22.5px 这种小数，与 JS 侧取整后的值对不上。
+ */
+const LINE_HEIGHT = 1.5;
+
 // 手柄要按行对准，所以行高与内边距不能各写各的：下面 textarea 用行内样式就是为了一处定义、
 // 两处对齐（圆角块里的类名会被 Tailwind 配置牵着走，行内样式不会）。
-const ROW_H = 28;
+/** 行高（px）：textarea / 镜像 / 行手柄 / 幽灵行 / 视觉行换算 全都读它 */
+const ROW_H = computed(() => Math.round(props.fontSize * LINE_HEIGHT));
 const PAD_TOP = 8;
 /** 底部多留一条滚动条的高度：长行横向滚动时，别让滚动条盖住最后一行 */
 const PAD_BOTTOM = 16;
@@ -78,7 +92,7 @@ const boxes = ref<LineBox[]>([]);
 /** 文本区下沿（内容坐标，含 PAD_TOP）：镜像实测；还没量到就先按未折行估算，免得首帧闪一下 */
 const textBottom = computed(() => {
   const last = boxes.value.at(-1);
-  return last ? last.top + last.height : PAD_TOP + lines.value.length * ROW_H;
+  return last ? last.top + last.height : PAD_TOP + lines.value.length * ROW_H.value;
 });
 
 /** textarea 与两个叠层共用的高度：文本区 + 底部留白 */
@@ -86,11 +100,11 @@ const editorHeight = computed(() => textBottom.value + PAD_BOTTOM);
 
 /** 第 index 行的行盒上沿；测层还没量到就退回「未折行」的估算 */
 function boxTop(index: number): number {
-  return boxes.value[index]?.top ?? PAD_TOP + index * ROW_H;
+  return boxes.value[index]?.top ?? PAD_TOP + index * ROW_H.value;
 }
 
 function boxHeight(index: number): number {
-  return boxes.value[index]?.height ?? ROW_H;
+  return boxes.value[index]?.height ?? ROW_H.value;
 }
 
 /** 插入位 index 的边界 y：该行盒的上沿；已经到底了就是文本区下沿 */
@@ -100,7 +114,7 @@ function insertLineTop(index: number): number {
 
 /** 第 index 行占几个视觉行：≥2 就是折行行（行盒高 = 视觉行数 × 行高） */
 function rowSpan(index: number): number {
-  return Math.max(1, Math.round(boxHeight(index) / ROW_H));
+  return Math.max(1, Math.round(boxHeight(index) / ROW_H.value));
 }
 
 /**
@@ -113,7 +127,7 @@ const continuationArrowTops = computed(() => {
   const tops: number[] = [];
   for (let index = 0; index < lines.value.length; index += 1) {
     for (let row = 1; row < rowSpan(index); row += 1) {
-      tops.push(boxTop(index) + row * ROW_H);
+      tops.push(boxTop(index) + row * ROW_H.value);
     }
   }
   return tops;
@@ -237,7 +251,7 @@ function onHandleDown(e: PointerEvent, index: number): void {
     originIndex: index,
     // 幽灵行固定一个行高，所以抓取偏移也按一个行高钳制：捏在很高的块的下半部分时，
     // 幽灵行贴在该块上沿附近，不会飘出去
-    grabOffset: Math.min(Math.max(e.clientY - rowTop, 0), ROW_H),
+    grabOffset: Math.min(Math.max(e.clientY - rowTop, 0), ROW_H.value),
     pointerY: e.clientY,
     insert: index,
     ghostLeft: rect.left,
