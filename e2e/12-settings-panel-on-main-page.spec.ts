@@ -186,6 +186,44 @@ test.describe("设置面板", () => {
     await expect(mung).toHaveCSS("color", "rgb(43, 58, 47)"); // #2b3a2f
     await expect(mung).toHaveCSS("background-color", "rgb(199, 237, 204)"); // #c7edcc
 
+    // 触发器：文字与那个 ▾ 排在同一条中线上（靠那个**显式** `<button>` 上的 flex 对齐）
+    const trigger = page.locator("select.theme-select > button");
+    await expect(trigger).toHaveCSS("display", "flex");
+    await expect(trigger).toHaveCSS("align-items", "center");
+
+    // 展开弹层（选项在弹层里，收起时量不到），核对"整行色块、四周不留缝"
+    await picker.click();
+    await expect(mung).toHaveCSS("border-radius", "0px");
+    await expect(mung).toHaveCSS("display", "flex");
+    await expect(mung).toHaveCSS("align-items", "center");
+    await expect(mung).toHaveCSS("min-height", "22px"); // 与面板其它行一致
+    await expect(mung).toHaveCSS("padding-left", "8px");
+    const [first, second] = await Promise.all([
+      page.locator('option[value="柔灰"]').boundingBox(),
+      page.locator('option[value="墨蓝"]').boundingBox(),
+    ]);
+    if (!first || !second) throw new Error("取不到选项的位置（弹层没展开？）");
+    expect(Math.abs(first.y + first.height - second.y)).toBeLessThanOrEqual(1); // 行与行紧挨
+
+    // 20 档都要翻得到：弹层必须能滚到底（给它加 `overflow` 类属性会把滚动条吞掉）。
+    // 把最后一档滚进视野，它得落在窗口内 —— 滚不动的话它就还在窗口下方。
+    const last = page.locator('option[value="樱粉"]');
+    await last.scrollIntoViewIfNeeded();
+    const lastBox = await last.boundingBox();
+    if (!lastBox) throw new Error("取不到末档的位置");
+    const innerHeight = await page.evaluate(() => window.innerHeight);
+    expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(innerHeight + 1);
+
+    // hover 只加描边：那一档的底与字仍是它自己那套（经典 <select> 里这一条守不住 ——
+    // 弹层是平台画的，鼠标扫过就会被系统高亮盖掉颜色）
+    await mung.hover();
+    await expect(mung).toHaveCSS("color", "rgb(43, 58, 47)");
+    await expect(mung).toHaveCSS("background-color", "rgb(199, 237, 204)");
+
+    // `Esc` 只收弹层，不该把整个设置面板也关掉
+    await page.keyboard.press("Escape");
+    await expect(panel(page)).toBeVisible();
+
     await picker.selectOption("豆沙绿");
     // 一个动作写两个偏好：前景与背景同时变
     expect(await editorColor()).toBe("rgb(43, 58, 47)");

@@ -107,7 +107,11 @@ function closeSettings(): void {
 /// 不在任何元素上，元素级监听收不到。（编辑器那两个快捷键不同：它们只在编辑器内有意义，
 /// 才必须元素级、不挂 document。）
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (settingsOpen.value && e.code === "Escape") closeSettings();
+  if (!settingsOpen.value || e.code !== "Escape") return;
+  // 颜色搭配的弹层开着时，`Esc` 先归它 —— 浏览配色不该把整个面板也关掉
+  //（`:open` 是 base-select 打开弹层时的伪类；旧运行时这里只是不匹配，行为不变）
+  if (document.querySelector("select.theme-select:open")) return;
+  closeSettings();
 }
 
 onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
@@ -312,12 +316,13 @@ function hideToTray() {
         <!-- 颜色搭配推荐：下拉菜单，**每个选项用它自己那套颜色渲染**（名字 + 该组的底 / 字色），
              展开就能一眼看出每档长什么样；收起时这个控件本身也按当前两个颜色画，等于一小片预览。
              选一档 = 把前景与背景**一起**设好（没有隐藏联动，之后照样能用上面两个取色器各自微调）；
-             两个颜色都不等于任何一档时，选中项是「自定义」。 -->
-        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+             两个颜色都不等于任何一档时，选中项是「自定义」。与上面两个颜色**同组**，不加分隔线。
+             `theme-select` 类启用 `appearance: base-select` 接管弹层（含 hover），见 `style.css`。 -->
+        <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">颜色搭配推荐</p>
           <select
             aria-label="颜色搭配推荐"
-            class="h-7 w-20 cursor-pointer truncate rounded px-1 text-xs"
+            class="theme-select h-7 w-20 cursor-pointer truncate rounded text-xs"
             :style="{
               color: foregroundColor,
               backgroundColor: backgroundColor,
@@ -326,13 +331,18 @@ function hideToTray() {
             :value="currentThemeName ?? ''"
             @change="onThemeChange(($event.target as HTMLSelectElement).value)"
           >
+            <!-- 触发器：base-select 下要**显式**写这个按钮（隐式按钮不可样式化），见 `style.css`。
+                 不支持的运行时整段被忽略，照旧回退成经典 select。 -->
+            <button>
+              <selectedcontent></selectedcontent>
+            </button>
             <!-- 只在两个颜色都不等于任何一档时出现：它是**当前选中的那项**，不是可选项 -->
             <option v-if="currentThemeName === null" value="">自定义</option>
             <option
               v-for="theme in THEMES"
               :key="theme.name"
               :value="theme.name"
-              :style="{ color: theme.fg, backgroundColor: theme.bg }"
+              :style="{ '--opt-fg': theme.fg, '--opt-bg': theme.bg }"
             >
               {{ theme.name }}
             </option>
