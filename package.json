@@ -1,7 +1,7 @@
 {
   "name": "dnote",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
   "packageManager": "pnpm@12.4.2",
   "type": "module",
   "scripts": {
