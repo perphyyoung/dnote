@@ -10,8 +10,9 @@
  */
 import { ref } from "vue";
 
-/// 默认前景 = slate-200：与历史上写死的正文色一致，所以默认观感不变
-export const FOREGROUND_DEFAULT = "#e2e8f0";
+/// 默认前景 = slate-400：就是推荐表里第一档「柔灰」的前景色。不用 slate-200（#e2e8f0）——
+/// 那个与深底的对比度接近 14.5:1，长时间看偏刺眼；柔灰 ≈6.7:1，是"看着舒服"那一档。
+export const FOREGROUND_DEFAULT = "#94a3b8";
 
 /// 偏好键：与置顶、字号、底色同一命名
 const KEY = "dnote:foreground-color";

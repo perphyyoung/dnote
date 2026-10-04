@@ -26,10 +26,10 @@ export interface Theme {
 /** 「柔灰」是故意压低的对比度（7:1 的下限对它豁免），别的组都按 7:1 卡 */
 export const LOW_CONTRAST_THEME = "柔灰";
 
-/** 十组推荐；顺序就是面板里 2×5 网格的排布顺序 */
+/** 十组推荐；顺序就是下拉里的顺序，**第一档与默认配色一致**（打开就是它被选中） */
 export const THEMES: readonly Theme[] = [
-  { name: "墨蓝", fg: "#e2e8f0", bg: "#0f172a" },
   { name: "柔灰", fg: "#94a3b8", bg: "#0f172a" },
+  { name: "墨蓝", fg: "#e2e8f0", bg: "#0f172a" },
   { name: "深灰", fg: "#cbd5e1", bg: "#1e293b" },
   { name: "藏蓝", fg: "#dbeafe", bg: "#172554" },
   { name: "暖褐", fg: "#e7e5e4", bg: "#1c1917" },

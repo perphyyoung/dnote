@@ -46,7 +46,7 @@ test.describe("设置面板", () => {
       localStorage.removeItem("dnote:autostart");
       localStorage.removeItem("dnote:line-height");
       localStorage.removeItem("dnote:foreground-color");
-      document.documentElement.style.setProperty("--note-fg", "#e2e8f0");
+      document.documentElement.style.setProperty("--note-fg", "#94a3b8");
     });
   });
 
@@ -117,7 +117,7 @@ test.describe("设置面板", () => {
     const editorColor = () => editor(page).evaluate((el) => getComputedStyle(el).color);
     const mirrorColor = () => mirror(page).evaluate((el) => getComputedStyle(el).color);
 
-    expect(await editorColor()).toBe("rgb(226, 232, 240)"); // #e2e8f0（默认）
+    expect(await editorColor()).toBe("rgb(148, 163, 184)"); // #94a3b8（默认「柔灰」的前景）
     expect(await mirrorColor()).toBe(await editorColor()); // 两边必须同源
 
     await gear(page).click();
@@ -136,7 +136,7 @@ test.describe("设置面板", () => {
 
     await gear(page).click();
     await page.getByRole("button", { name: "重置前景颜色" }).click();
-    expect(await editorColor()).toBe("rgb(226, 232, 240)");
+    expect(await editorColor()).toBe("rgb(148, 163, 184)");
     await expect(page.getByRole("button", { name: "重置前景颜色" })).toHaveCount(0); // 已回默认 → 收起
   });
 
@@ -148,7 +148,7 @@ test.describe("设置面板", () => {
     const picker = page.getByLabel("颜色搭配推荐");
 
     await gear(page).click();
-    await expect(picker).toHaveValue("墨蓝"); // 默认那档就是当前值
+    await expect(picker).toHaveValue("柔灰"); // 默认那档就是当前值（下拉第一档 = 默认配色）
 
     // 每个选项用**它自己那套颜色**渲染：名字 + 该组的字色 / 底色，展开就能一眼看出每档长什么样
     const mung = page.locator('option[value="豆沙绿"]');
