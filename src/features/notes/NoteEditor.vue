@@ -16,23 +16,25 @@ import { log } from "@/utils/logger";
 
 const { content, lines } = useNotes();
 
-/** 正文字号（px），由外壳从设置偏好传入 —— 行高与它联动，见 `LINE_HEIGHT` */
+/** 正文字号（px），由外壳从设置偏好传入 —— 行高由它按行高比派生，见 `LINE_HEIGHT_RATIO` */
 const props = defineProps<{ fontSize: number }>();
 
 /**
- * 行高 = 字号 × 这个比例。**行高必须跟着字号走**：写死一个行高时，默认字号下的行距会松到
- * 两倍上下，同屏白白少显示近三成行；而字号调大时又反过来变紧。
+ * 行高比：行高 = 字号 × 行高比（派生出的 px 值是 `ROW_H`）。**行高必须跟着字号走**：写死一个
+ * 行高时，默认字号下的行距会松到两倍上下，同屏白白少显示近三成行；字号调大时又反过来变紧。
  *
- * 比例是唯一的调节点，想让整页更松/更紧改这里即可（**别写进文档**，文档只说"按比例派生"）。
- * 仍以 px 整数喂给 textarea 与镜像（`Math.round`），不用无单位的 `line-height: 1.5` ——
+ * 名字带 `_RATIO` 是因为它是**倍数**而不是行高本身 —— CSS 里的 `line-height` 指的是算出来的
+ * 行高（px），叫 `LINE_HEIGHT` 会被读成「行高 1.5px」。行高比是唯一的调节点，想让整页更松 / 更紧
+ * 改这里即可（**别把数字写进文档**，文档只说"按行高比派生"）。
+ * 仍以 px 整数喂给 textarea 与镜像（`Math.round`），不用无单位的 `line-height` ——
  * 那样浏览器会算出 22.5px 这种小数，与 JS 侧取整后的值对不上。
  */
-const LINE_HEIGHT = 1.5;
+const LINE_HEIGHT_RATIO = 1.5;
 
 // 手柄要按行对准，所以行高与内边距不能各写各的：下面 textarea 用行内样式就是为了一处定义、
 // 两处对齐（圆角块里的类名会被 Tailwind 配置牵着走，行内样式不会）。
 /** 行高（px）：textarea / 镜像 / 行手柄 / 幽灵行 / 视觉行换算 全都读它 */
-const ROW_H = computed(() => Math.round(props.fontSize * LINE_HEIGHT));
+const ROW_H = computed(() => Math.round(props.fontSize * LINE_HEIGHT_RATIO));
 const PAD_TOP = 8;
 /** 底部多留一条滚动条的高度：长行横向滚动时，别让滚动条盖住最后一行 */
 const PAD_BOTTOM = 16;
