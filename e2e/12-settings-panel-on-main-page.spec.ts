@@ -1,12 +1,12 @@
 /**
- * 设置面板：标题条右上的齿轮 → 在标题条**下方内嵌**弹出（不开独立窗口），里头是笔记正文字号
- * 与笔记区底色。
+ * 设置面板：标题条右上的齿轮 → 在标题条**下方内嵌**弹出（不开独立窗口），里头是笔记正文字号、
+ * 行高比与笔记区底色。
  *
  * 两条口径：
- * - 字号同时决定**行高**（按一个比例派生，比例常量在 `NoteEditor.vue`）—— 所以镜像与 textarea
- *   必须**同字号**，否则折行位置不同、手柄会系统性错位。这里照 `09` 的护栏口径再核对一次
- *   「镜像总高 ≈ textarea 内容高」；行高与字号的比例另有一条用例盯着。
- * - 三个偏好都存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
+ * - 字号与行高比**一起**决定行高（`ROW_H` = 字号 × 行高比，缺省在 `features/settings/lineHeight.ts`）
+ *   —— 所以镜像与 textarea 必须**同字号**，否则折行位置不同、手柄会系统性错位。这里照 `09` 的护栏
+ *   口径再核对一次「镜像总高 ≈ textarea 内容高」；行高与两者的关系各有用例盯着，且都不断言绝对值。
+ * - 四个偏好都存在 WebView 的 localStorage（与置顶同源），同一 worker 的其它 spec 共用这份
  *   profile，所以用例结束**必须复位**，否则会污染 09/10 的几何断言。
  */
 import { expect } from "@playwright/test";
@@ -42,6 +42,7 @@ test.describe("设置面板", () => {
       localStorage.removeItem("dnote:background-color");
       document.documentElement.style.setProperty("--note-bg", "#0f172a");
       localStorage.removeItem("dnote:autostart");
+      localStorage.removeItem("dnote:line-height");
     });
   });
 
@@ -137,6 +138,27 @@ test.describe("设置面板", () => {
     // 取整带来的误差留 5% 余量。
     expect(atLarge).toBeGreaterThan(atDefault);
     expect(Math.abs(atLarge / atDefault - 20 / 14)).toBeLessThan(0.05);
+  });
+
+  test("行高比：拖滑块即时改变行高，与字号同构（无重置），重载后记住", async ({ page }) => {
+    const atDefault = await rowHeight(page);
+
+    await gear(page).click();
+    const slider = page.getByLabel("笔记行高比");
+    await slider.fill("2");
+    expect(await rowHeight(page)).toBeGreaterThan(atDefault); // 即时生效
+
+    // 与「字体大小」同构：这一行**没有**「重置」按钮（同组控件做法一致，见 design.md「设置面板」）
+    await expect(page.getByRole("button", { name: "重置行高比" })).toHaveCount(0);
+
+    // 偏好落盘：重载后停在同一个行高上。断的是「行高没变」而不是某个绝对值 ——
+    // 缺省行高比是代码里的调节点，钉死数字会让人改比例时先红一遍。
+    await slider.fill("1.2");
+    const before = await rowHeight(page);
+    await page.reload();
+    await gear(page).click();
+    await expect(page.getByLabel("笔记行高比")).toHaveValue("1.2");
+    expect(await rowHeight(page)).toBe(before);
   });
 
   test("面板最底下一行显示版本号", async ({ page }) => {

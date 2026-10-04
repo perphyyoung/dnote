@@ -11,6 +11,12 @@ import {
   setBackgroundColor,
 } from "@/features/settings/background";
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontSize, setFontSize } from "@/features/settings/fontSize";
+import {
+  LINE_HEIGHT_MAX,
+  LINE_HEIGHT_MIN,
+  lineHeightRatio,
+  setLineHeightRatio,
+} from "@/features/settings/lineHeight";
 import { log } from "@/utils/logger";
 
 const { ready, error } = useNotes();
@@ -178,7 +184,7 @@ function hideToTray() {
         aria-label="设置"
         @pointerdown.stop
       >
-        <!-- 三行同构：左标签 + 右控件（不给设置项写说明文案） -->
+        <!-- 四行同构：左标签 + 右控件（不给设置项写说明文案） -->
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">字体大小</p>
           <div class="flex items-center gap-2">
@@ -194,6 +200,28 @@ function hideToTray() {
             />
             <!-- 定宽 + tabular-nums：拖动时数字宽度不跳，滑块不会被顶着抖 -->
             <span class="w-9 text-right text-xs tabular-nums text-slate-400">{{ fontSize }}px</span>
+          </div>
+        </div>
+
+        <!-- 行高比：与「字体大小」**完全同构**（滑块 + 定宽读数，没有「重置」—— 同组控件
+             要一致；滑块能自己拖回，读数又一直显示当前倍数）。排在它下面、同一组内不加分隔线。
+             读数带倍数符号 `×`，一眼看出是倍数而不是 px（术语见「通用语言.md」）。 -->
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-300">行高比</p>
+          <div class="flex items-center gap-2">
+            <input
+              type="range"
+              :min="LINE_HEIGHT_MIN"
+              :max="LINE_HEIGHT_MAX"
+              step="0.1"
+              aria-label="笔记行高比"
+              class="w-20 accent-slate-400"
+              :value="lineHeightRatio"
+              @input="setLineHeightRatio(Number(($event.target as HTMLInputElement).value))"
+            />
+            <span class="w-9 text-right text-xs tabular-nums text-slate-400">
+              {{ lineHeightRatio.toFixed(1) }}×
+            </span>
           </div>
         </div>
 
@@ -249,7 +277,7 @@ function hideToTray() {
 
     <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
     <main class="min-h-0 flex-1">
-      <NoteEditor v-if="ready" :font-size="fontSize" />
+      <NoteEditor v-if="ready" :font-size="fontSize" :line-height-ratio="lineHeightRatio" />
     </main>
 
     <footer
