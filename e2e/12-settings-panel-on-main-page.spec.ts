@@ -140,6 +140,53 @@ test.describe("设置面板", () => {
     expect(Math.abs(atLarge / atDefault - 20 / 14)).toBeLessThan(0.05);
   });
 
+  test("改行高比后：续行箭头仍逐个落在真实续行上（不出现幽灵箭头）", async ({ page, app }) => {
+    // 现象：行高比一改，`boxes`（镜像行盒缓存）还是**旧行高**下测的，而 `rowSpan` 已经用**新行高** ——
+    // 拿旧盒高除新行高会凭空算出折行，于是每个逻辑行都长出一个 `↳`，一串假换行符挂在正文下面。
+    //
+    // 判据不钉任何数字：**现场重测一次镜像**（绕开 app 那份缓存）算出每个逻辑行占几个视觉行、
+    // 每个续行该落在哪，再与实际渲染的箭头逐一比对 —— 少一个、多一个、错位都红。
+    // 夹具换成**真的会折行**的长行：否则等号两边都是空集，用例等于白过。
+    await seedLines(app, page, ["基准行", "折行判定要用实测几何，".repeat(12), ""]);
+
+    /// 读一次当前几何，返回「应有的箭头位置（相对镜像）」与「实际箭头位置（相对镜像）」
+    const arrowPositions = async () => {
+      const mirrorTop = await mirror(page).evaluate((el) => el.getBoundingClientRect().top);
+      const boxes = await mirror(page).evaluate((el) => {
+        const base = el.getBoundingClientRect().top;
+        return Array.from(el.children, (child) => {
+          const rect = child.getBoundingClientRect();
+          return { top: rect.top - base, height: rect.height };
+        });
+      });
+      // 第一个夹具行不折行 → 它的行盒高就是当前行高
+      const rowH = boxes[0].height;
+      const expected = boxes.flatMap((b) => {
+        const rows = Math.max(1, Math.round(b.height / rowH));
+        return Array.from({ length: rows - 1 }, (_, k) => b.top + (k + 1) * rowH);
+      });
+      // 箭头在**视口坐标**里，行盒是**相对镜像**的 —— 用同一个 base 换算，否则会差一个「镜像上沿」
+      const actual = await page
+        .locator("[data-continuation-arrow]")
+        .evaluateAll(
+          (els, base) => els.map((el) => el.getBoundingClientRect().top - base),
+          mirrorTop,
+        );
+      return { rowH, expected, actual };
+    };
+
+    await gear(page).click();
+    // 两个方向都试：压到最小（旧盒 > 新行高，会算出假折行）与放到最大（旧盒 < 新行高）
+    for (const ratio of ["1", "2"]) {
+      await page.getByLabel("笔记行高比").fill(ratio);
+      const { rowH, expected, actual } = await arrowPositions();
+      e2eLog.info("[arrow]", JSON.stringify({ ratio, rowH, expected, actual }));
+      expect(expected.length).toBeGreaterThan(0); // 前提：长行确实折了，这条才有意义
+      expect(actual.length).toBe(expected.length);
+      actual.forEach((top, i) => expect(Math.abs(top - expected[i])).toBeLessThanOrEqual(1));
+    }
+  });
+
   test("行高比：拖滑块即时改变行高，与字号同构（无重置），重载后记住", async ({ page }) => {
     const atDefault = await rowHeight(page);
 

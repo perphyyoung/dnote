@@ -133,7 +133,10 @@ const continuationArrowTops = computed(() => {
 });
 
 /**
- * 读镜像测层的行盒。**文本或容器宽度一变就必须重测** —— 折行位置只由这两者决定。
+ * 读镜像测层的行盒。**文本、容器宽度、字号、行高比 —— 四个里任何一个变了都必须重测**：
+ * 行盒几何由这四者共同决定（前两者决定折行位置，后两者决定每行多高）。少一个，缓存就会
+ * 与消费它的 `ROW_H` 不同源 —— 例如改行高比后 `rowSpan = round(旧盒高 / 新行高)` 会算出
+ * 假的折行，于是每个逻辑行都长出一个 `↳`（见 `开发经验.md`）。
  * 用两个 rect 相减而不是 `offsetTop`：后者相对 offsetParent 的哪条边容易被记错，
  * 而「镜像与 textarea 同框对齐」这件事用 rect 差值最直白。
  */
@@ -147,8 +150,10 @@ function measure(): void {
   });
 }
 
-// 文本一变就重测；flush: 'post' = 等镜像的 DOM 更新完再量
-watch(lines, measure, { flush: "post" });
+// 文本或行高（字号 × 行高比）一变就重测；flush: 'post' = 等镜像的 DOM 更新完再量。
+// 容器宽度那一路由下面的 ResizeObserver 负责 —— **别把 ROW_H 漏掉**：漏了就会拿旧行高下的
+// 行盒去配新行高（`rowSpan` 因此凭空算出折行），假换行符会一直挂到下次改文本为止。
+watch([lines, ROW_H], measure, { flush: "post" });
 
 /** 插入线只在真会换位时出现：插回自己的上边或下边都等于没动 */
 const showInsertLine = computed(() => {
