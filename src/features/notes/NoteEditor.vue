@@ -679,7 +679,7 @@ function flashDropped(index: number): void {
         </button>
         <button
           type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-slate-900/80 text-slate-500 transition hover:bg-slate-700 hover:text-rose-300"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-fg-veil)] text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-weak)] hover:text-rose-500"
           aria-label="删除当前行"
           title="删除当前行 (Ctrl+D)"
           @mousedown.prevent
@@ -735,7 +735,7 @@ function flashDropped(index: number): void {
          relative z-10：压在背景装饰层之上、又在手柄层之下，文字因此不会被高亮染色。 -->
     <textarea
       ref="editor"
-      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent outline-none placeholder:text-slate-600"
+      class="relative z-10 block w-full resize-none overflow-x-hidden overflow-y-hidden break-words whitespace-pre-wrap border-0 bg-transparent outline-none placeholder:text-[var(--note-fg-faint)]"
       :style="{
         color: 'var(--note-fg)',
         caretColor: 'var(--note-fg)',

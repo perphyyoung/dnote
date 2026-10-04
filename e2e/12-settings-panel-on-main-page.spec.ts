@@ -25,6 +25,31 @@ const NOTE = [
   "",
 ];
 
+/**
+ * 页内按 WCAG 相对亮度算「某元素的前景色 vs 整窗背景」的对比度（1:1 ~ 21:1）。
+ *
+ * 为什么要现算而不是比颜色字符串：判据是"看不看得见"，那就得算对比度 —— 浅色搭配下写死的
+ * 近白色对浅底只有 1.1:1（白字白底），换个颜色值照样可能不够；算式写在这里，两条用例共用。
+ */
+async function contrastWithShell(page: Page, selector: string): Promise<number> {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    const shell = document.querySelector('[role="application"]');
+    if (!el || !shell) return -1;
+    const rgb = (color: string) =>
+      (color.match(/[\d.]+/g) ?? []).slice(0, 3).map((value) => Number(value) / 255);
+    const luminance = (color: string) => {
+      const [r = 0, g = 0, b = 0] = rgb(color).map((value) =>
+        value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
+      );
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const fg = luminance(getComputedStyle(el).color);
+    const bg = luminance(getComputedStyle(shell).backgroundColor);
+    return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+  }, selector);
+}
+
 const gear = (page: Page) => page.getByRole("button", { name: "设置" });
 const panel = (page: Page) => page.getByRole("dialog", { name: "设置" });
 const slider = (page: Page) => page.getByLabel("笔记字体大小");
@@ -36,18 +61,24 @@ test.describe("设置面板", () => {
     await seedLines(app, page, NOTE);
   });
 
-  // 同一 worker 的其它 spec 共用这份 WebView profile：字号留在里面会污染 09/10 的几何断言
+  // 同一 worker 的其它 spec 共用这份 WebView profile：偏好留在里面会污染 09/10 的几何与颜色断言，
+  // 所以清 localStorage **并重载**。为什么不能只手改 CSS 变量：各偏好模块的 ref 只在模块加载时
+  // 读一次，手改变量等于让"模块里的值"与"DOM 上的值"对不上 —— 之后再设回同一个值会被幂等判断
+  // 吃掉（`setForegroundColor` 之类发现"没变"直接 return），测试里就出现"选了却没生效"的假象。
   test.afterEach(async ({ page }) => {
     await page.evaluate(() => {
-      localStorage.removeItem("dnote:font-size");
-      document.documentElement.style.setProperty("--note-font-size", "14px");
-      localStorage.removeItem("dnote:background-color");
-      document.documentElement.style.setProperty("--note-bg", "#0f172a");
-      localStorage.removeItem("dnote:autostart");
-      localStorage.removeItem("dnote:line-height");
-      localStorage.removeItem("dnote:foreground-color");
-      document.documentElement.style.setProperty("--note-fg", "#94a3b8");
+      for (const key of [
+        "dnote:font-size",
+        "dnote:background-color",
+        "dnote:foreground-color",
+        "dnote:line-height",
+        "dnote:autostart",
+        "dnote:always-on-top",
+      ]) {
+        localStorage.removeItem(key);
+      }
     });
+    await page.reload(); // 重载后各模块按"没有偏好"重新初始化，变量与 ref 一起回默认
   });
 
   test("齿轮打开面板；点正文区 / Esc / 再点齿轮都能收起", async ({ page }) => {
@@ -182,26 +213,40 @@ test.describe("设置面板", () => {
     await gear(page).click();
     await page.getByLabel("颜色搭配推荐").selectOption("冷白");
 
-    // 页内按 WCAG 相对亮度现算箭头与笔记区底色的对比度：箭头若还写死 slate-200，
-    // 在这套浅色搭配下会变成"白字白底"，这条立刻红。
-    const ratio = await page.evaluate(() => {
-      const arrow = document.querySelector("[data-continuation-arrow]");
-      const shell = document.querySelector('[role="application"]');
-      if (!arrow || !shell) return -1;
-      const rgb = (color: string) =>
-        (color.match(/[\d.]+/g) ?? []).slice(0, 3).map((value) => Number(value) / 255);
-      const luminance = (color: string) => {
-        const [r = 0, g = 0, b = 0] = rgb(color).map((value) =>
-          value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
-        );
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      };
-      const fg = luminance(getComputedStyle(arrow).color);
-      const bg = luminance(getComputedStyle(shell).backgroundColor);
-      return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
-    });
-    e2eLog.info("[contrast]", JSON.stringify({ ratio }));
+    // 箭头若还写死 slate-200，在这套浅色搭配下会变成"白字白底"（≈1.1:1），这条立刻红
+    const ratio = await contrastWithShell(page, "[data-continuation-arrow]");
+    e2eLog.info("[contrast]", JSON.stringify({ arrow: ratio }));
     expect(ratio).toBeGreaterThanOrEqual(3);
+  });
+
+  test("浅色搭配下标题条图标仍看得见：图钉跟随前景、与底色对比度 ≥ 3:1", async ({ page }) => {
+    const pin = page.getByRole("button", { name: "置顶" });
+    const editorColor = () => editor(page).evaluate((el) => getComputedStyle(el).color);
+
+    await gear(page).click();
+    await page.getByLabel("颜色搭配推荐").selectOption("冷白");
+
+    // 标题条没有自己的底色（整窗都是笔记底色），所以浅色搭配下它也变浅了：
+    // 图钉（置顶中）以前是写死的 slate-200 —— 白字浅底，≈1.1:1
+    // 标题条按钮带 `transition`：换配色后颜色是**渐变的**，直接读会拿到上一档的中间色
+    //（正文没有过渡，所以"图钉 != 正文"这种假象必须先等它落定）。`toHaveCSS` 会重试，正好当这个等待。
+    // 这一条同时钉住的是"跟随前景"，而不只是"碰巧够亮"。
+    await expect(pin).toHaveCSS("color", await editorColor());
+
+    const ratio = await contrastWithShell(page, 'button[aria-label="置顶"]');
+    e2eLog.info("[contrast]", JSON.stringify({ pin: ratio }));
+    expect(ratio).toBeGreaterThanOrEqual(3);
+
+    // 两个状态仍分得开：未置顶那档弱一档（弱化色）
+    await pin.click();
+    // 指针要**挪开**：未激活态带 `hover:text-[var(--note-fg)]`，指针停在按钮上时它会被顶成前景色，
+    // 两个状态就分不出来了（第一版就是这么假红的）
+    await page.mouse.move(20, 200);
+    await expect
+      .poll(async () => pin.evaluate((el) => getComputedStyle(el).color))
+      .not.toBe(await editorColor());
+    await pin.click(); // 还原置顶：别把状态留给后面的用例
+    await expect(pin).toHaveAttribute("aria-pressed", "true");
   });
 
   // 这里只验「偏好 → 界面」这条链路：e2e 跑的是 dev 构建 + 无人值守，后端**不写注册表**

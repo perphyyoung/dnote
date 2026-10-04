@@ -122,14 +122,14 @@ function hideToTray() {
 
 <template>
   <div
-    class="relative flex h-full flex-col text-slate-200"
+    class="relative flex h-full flex-col text-[var(--note-fg)]"
     :style="{ backgroundColor: 'var(--note-bg)' }"
     role="application"
     aria-label="dnote 主窗口"
   >
     <!-- 无边框窗口的标题条：空白处按住可拖动窗口 -->
     <header
-      class="flex h-8 shrink-0 items-center gap-1 border-b border-slate-800 px-1.5"
+      class="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--note-fg-weak)] px-1.5"
       data-tauri-drag-region
     >
       <!-- 应用图标：与 favicon 同一份资产（`public/icon.png`），装饰性 —— 语义由旁边的名称承担。
@@ -143,7 +143,7 @@ function hideToTray() {
       />
       <!-- 名称也要带拖动标记：拖动判定看的是「指针下那个元素**自己**带不带」，父元素（header）带了不算 -->
       <span
-        class="select-none text-xs font-medium tracking-wide text-slate-500"
+        class="select-none text-xs font-medium tracking-wide text-[var(--note-fg-faint)]"
         data-tauri-drag-region
       >
         dnote
@@ -154,8 +154,8 @@ function hideToTray() {
         class="flex h-6 w-6 items-center justify-center rounded transition"
         :class="
           alwaysOnTop
-            ? 'text-slate-200 hover:bg-slate-800'
-            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-200'
+            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
+            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
         "
         :title="alwaysOnTop ? '取消置顶' : '置顶'"
         aria-label="置顶"
@@ -186,8 +186,8 @@ function hideToTray() {
         class="flex h-6 w-6 items-center justify-center rounded transition"
         :class="
           settingsOpen
-            ? 'text-slate-200 hover:bg-slate-800'
-            : 'text-slate-500 hover:bg-slate-800 hover:text-slate-200'
+            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
+            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
         "
         title="设置"
         aria-label="设置"
@@ -199,7 +199,7 @@ function hideToTray() {
       </button>
       <button
         type="button"
-        class="flex h-6 w-6 items-center justify-center rounded text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+        class="flex h-6 w-6 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]"
         title="隐藏到托盘"
         @click="hideToTray"
       >
