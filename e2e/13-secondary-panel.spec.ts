@@ -34,6 +34,7 @@ import { e2eLog } from "./e2e-logger";
 /// 与 `features/settings/secondaryPanel.ts` 的 KEY 一致（跨语言无法共享常量）
 const PANEL_KEY = "dnote:secondary-panel";
 const WIDTH_KEY = "dnote:secondary-panel-width";
+const MAIN_WIDTH_KEY = "dnote:main-panel-width";
 
 const MAIN_NOTE = ["主面板第一条", "主面板第二条"];
 const SECONDARY_NOTE = ["次级第一条", "次级第二条", "次级第三条"];
@@ -50,12 +51,25 @@ const rect = (page: Page, selector: string) =>
     return { top: r.top, height: r.height, width: r.width };
   });
 
+/// 把分界线拖 `dx` 像素（正 = 往右 = 主面板变宽）。必须分步移动：一步跳到目标不产生中间的
+/// `pointermove`，而宽度正是按指针位移算的。
+async function dragDivider(page: Page, dx: number): Promise<void> {
+  const box = await page.getByRole("separator", { name: "拖动调整主面板宽度" }).boundingBox();
+  if (!box) throw new Error("取不到分界线位置");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + dx, y, { steps: 8 });
+  await page.mouse.up();
+}
+
 test.describe("次级面板", () => {
   test.beforeEach(async ({ app, page }) => {
     // 偏好先清掉（上一条用例可能留下展开偏好与拖出来的次级宽度），`seedLines` 里的 reload 会让它生效
     await page.evaluate(
       (keys) => keys.forEach((key) => localStorage.removeItem(key)),
-      [PANEL_KEY, WIDTH_KEY],
+      [PANEL_KEY, WIDTH_KEY, MAIN_WIDTH_KEY],
     );
     await seedLines(app, page, MAIN_NOTE);
   });
@@ -72,7 +86,7 @@ test.describe("次级面板", () => {
     }
     await page.evaluate(
       (keys) => keys.forEach((key) => localStorage.removeItem(key)),
-      [PANEL_KEY, WIDTH_KEY],
+      [PANEL_KEY, WIDTH_KEY, MAIN_WIDTH_KEY],
     );
     await page.reload(); // 复位后重载：下一个 spec 面对的是「默认收起」的界面
   });
@@ -153,13 +167,7 @@ test.describe("次级面板", () => {
     const secondaryBefore = (await rect(page, '[data-panel-frame="secondary"]')).width;
 
     // 分界线往左拖 80px：主面板窄 80、次级正好宽 80 —— 两栏之和不变，所以**窗口一个像素都不动**
-    const divider = page.getByRole("separator", { name: "拖动调整主面板宽度" });
-    const at = await divider.boundingBox();
-    if (!at) throw new Error("取不到分界线位置");
-    await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(at.x + at.width / 2 - 80, at.y + at.height / 2, { steps: 8 });
-    await page.mouse.up();
+    await dragDivider(page, -80);
 
     const mainAfter = (await rect(page, '[data-panel="main"]')).width;
     const secondaryAfter = (await rect(page, '[data-panel-frame="secondary"]')).width;
@@ -184,6 +192,47 @@ test.describe("次级面板", () => {
     expect((await rect(page, '[data-panel-frame="secondary"]')).width).toBeCloseTo(
       secondaryAfter,
       0,
+    );
+  });
+
+  test("分界线位置记在偏好里：展开态重载后仍停在同一处", async ({ page }) => {
+    await handle(page).click();
+    await expect(frame(page)).toBeVisible();
+    await dragDivider(page, -70);
+
+    const mainDragged = (await rect(page, '[data-panel="main"]')).width;
+    const secondaryDragged = (await rect(page, '[data-panel-frame="secondary"]')).width;
+
+    // 重载跑的是**启动摆放**那段逻辑（与真重启同一段代码）：分界线必须停在拖动后的位置。
+    // 曾经的实现只记次级宽、用「窗宽 − 次级宽」反推主宽 —— 那次拖出来的位置当场丢，这条会红。
+    await page.reload();
+    await expect(frame(page)).toBeVisible();
+    expect((await rect(page, '[data-panel="main"]')).width).toBeCloseTo(mainDragged, 0);
+    expect((await rect(page, '[data-panel-frame="secondary"]')).width).toBeCloseTo(
+      secondaryDragged,
+      0,
+    );
+  });
+
+  test("展开态拖窗口右缘后重载：分界线仍在原处，多出来的宽度归次级", async ({ app, page }) => {
+    await handle(page).click();
+    await expect(frame(page)).toBeVisible();
+    const mainBefore = (await rect(page, '[data-panel="main"]')).width;
+    const secondaryBefore = (await rect(page, '[data-panel-frame="secondary"]')).width;
+
+    if (!app.child.pid) throw new Error("拿不到应用进程号");
+    resizeWindowBy(app.child.pid, 120, 0);
+    await expect
+      .poll(async () => (await rect(page, '[data-panel-frame="secondary"]')).width)
+      .toBeGreaterThanOrEqual(secondaryBefore + 110);
+
+    // 右缘那一路**不写任何偏好**：窗口宽由 window-state 承担、主宽偏好没动 —— 重载后分界线原位、
+    // 次级吃到全部增量（这就是"不用挂 Resized 也能记住"的那一半）
+    await page.reload();
+    await expect(frame(page)).toBeVisible();
+    expect((await rect(page, '[data-panel="main"]')).width).toBeCloseTo(mainBefore, 0);
+    expect((await rect(page, '[data-panel-frame="secondary"]')).width).toBeGreaterThanOrEqual(
+      secondaryBefore + 110,
     );
   });
 

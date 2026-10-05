@@ -7,10 +7,19 @@
  *   改尺寸，见 `AGENTS.md` 那条禁令）。
  * - **两栏之间的分界线**拖动只改**主面板**宽度：次级让位、窗口不动。
  *
- * 所以两个宽度里只有一个是**偏好**：`secondaryPanelWidth`（收起时按「窗宽 − 主宽」算出来写回）。
- * 主面板宽度是**会话内**状态：关闭态下主面板 `flex-1` 吃满窗口，所以「主面板宽」就是当时的窗口宽
- * —— 展开那一刻取它、拖分界线时改它，收起后这份宽度又变成窗口宽自然带着。**刻意不存第二份**：
- * 存了就有两个真值，改窗口宽与存下来的主宽必然对不上。
+ * 两个宽度都是偏好，但**权威按时刻切换**（这是唯一不自相矛盾的分法）：
+ * - **启动**（偏好=开）：**主宽偏好**摆分界线 —— 它就是分界线位置；次级宽 = window-state 恢复的
+ *   窗口宽 − 主宽（算出来，不读次级宽偏好）。
+ * - **从关闭态展开**：关闭态下主面板吃满窗口，所以**窗口宽**权威 —— 主宽按它写一次，
+ *   窗口再加宽「次级宽偏好」。
+ * - **拖分界线松手**：写主宽偏好。**这是「重启后分界线位置不变」的唯一依据**。
+ * - **收起**：窗口 := 主宽，并把次级宽偏好按「窗宽 − 主宽」记下来（下次展开给多宽）。
+ * - **拖窗口右缘**：不写任何偏好 —— 窗口宽的变化由 window-state 承担，重启后
+ *   `次级 = 窗口宽 − 主宽` 自动复位（所以这一路仍然不需要监听 `Resized`）。
+ *
+ * 为什么不能只存次级宽、用「窗宽 − 次级宽」反推主宽（曾经的实现，分界线重启就跑位）：次级宽
+ * 只能在收起那一刻量到（拖右缘不挂 `Resized` 就量不到），它天然滞后 —— 展开态拖过分界线再重启，
+ * 反推出来的是**拖动前**的位置。分界线位置必须有自己的真值。
  *
  * 面板开着还是关着是**界面偏好**（localStorage），与字号 / 底色同源，不进任何一个笔记文件。
  * 为什么不是第二个窗口：两块面板要的是「同一套操作」，那件事的代价全在跨窗口上（焦点、置顶、
@@ -35,21 +44,27 @@ const MIN_H = 200;
 
 const OPEN_KEY = "dnote:secondary-panel";
 const WIDTH_KEY = "dnote:secondary-panel-width";
+const MAIN_WIDTH_KEY = "dnote:main-panel-width";
 
-function readWidth(): number {
-  const raw = localStorage.getItem(WIDTH_KEY);
+function readNumber(key: string, fallback: number, min: number): number {
+  const raw = localStorage.getItem(key);
   const value = raw === null ? Number.NaN : Number(raw);
-  return Number.isFinite(value)
-    ? Math.max(SECONDARY_MIN_W, Math.round(value))
-    : SECONDARY_DEFAULT_W;
+  return Number.isFinite(value) ? Math.max(min, Math.round(value)) : fallback;
 }
 
 /** 面板是否展开。缺省**关**：不打开就不会创建次级面板那个笔记文件。 */
 export const secondaryOpen = ref(localStorage.getItem(OPEN_KEY) === "1");
-/** 次级面板宽度（px）：展开时窗口要加宽的正是它，收起时按「窗宽 − 主宽」写回 */
-export const secondaryPanelWidth = ref(readWidth());
-/** 主面板宽度（px，**会话内**状态，不落盘）：展开那一刻 = 当时的窗口宽，拖分界线时改它 */
-export const mainPanelWidth = ref(0);
+/**
+ * 次级面板宽度（px）：两个用途 —— 从关闭态展开时窗口加宽多少；启动时若主宽偏好缺失，
+ * 用它反推主宽。**它不是"重启后摆分界线"的依据**（那个用 `mainPanelWidth`），
+ * 因为拖动窗口右缘改的是它、而不挂 `Resized` 就量不到——它只能在收起时记一次。
+ */
+export const secondaryPanelWidth = ref(readNumber(WIDTH_KEY, SECONDARY_DEFAULT_W, SECONDARY_MIN_W));
+/**
+ * 主面板宽度（px）= **分界线位置**：重启后要精确复原的就是它，所以它是偏好。
+ * `0` = 还没记过：从关闭态展开时按当时的窗口宽写一次（关闭态下主面板就是窗口宽）。
+ */
+export const mainPanelWidth = ref(readNumber(MAIN_WIDTH_KEY, 0, MAIN_MIN_W));
 
 /** 主面板宽度的夹取：留出次级面板的下限，拖到底也不把那一栏挤没（纯函数，e2e 也按同一口径夹） */
 export function clampMainWidth(width: number, containerWidth: number): number {
@@ -64,9 +79,21 @@ function setSecondaryWidth(width: number): void {
   localStorage.setItem(WIDTH_KEY, String(value));
 }
 
-/** 主面板宽度变了（展开态下拖分界线）：只改会话状态 —— 拖动中每帧都会调，别在这儿发 IPC */
+/// 主宽落盘：`0` 是「还没记过」的哨兵值，不写下去（否则下次启动会当成立即生效的 0）
+function setMainWidth(width: number): void {
+  const value = Math.max(MAIN_MIN_W, Math.round(width));
+  mainPanelWidth.value = value;
+  localStorage.setItem(MAIN_WIDTH_KEY, String(value));
+}
+
+/** 拖动中每帧都会调：只改值，**不发 IPC 也不落盘**（落盘留给松手时的 `commitMainPanelWidth`） */
 export function setMainPanelWidth(width: number): void {
   mainPanelWidth.value = Math.max(MAIN_MIN_W, Math.round(width));
+}
+
+/** 松手：把分界线位置记下来 —— 它是**重启后复原分界线**的唯一依据（see `resizeFor`） */
+export function commitMainPanelWidth(): void {
+  setMainWidth(mainPanelWidth.value);
 }
 
 /**
@@ -94,10 +121,21 @@ async function resizeFor(on: boolean, atStartup: boolean): Promise<void> {
 
   let width = inner.width;
   if (on) {
-    // 主面板宽：关闭态下它吃满窗口，所以就是**当时的窗口宽**；启动时窗口已经含两栏，反推回来
-    mainPanelWidth.value = atStartup
-      ? Math.max(MAIN_MIN_W, Math.round(inner.width - secondaryPanelWidth.value))
-      : Math.max(MAIN_MIN_W, Math.round(inner.width));
+    if (atStartup) {
+      // 分界线以**主宽偏好**为准；没记过就拿「窗宽 − 次级宽」起个头
+      const stored = mainPanelWidth.value;
+      const wanted = stored > 0 ? stored : inner.width - secondaryPanelWidth.value;
+      const clamped = clampMainWidth(wanted, inner.width);
+      if (stored > 0) {
+        // 只在内存里夹（窗口可能被壳搞窄过）：夹出来的值不写回偏好，免得把用户拖的位置改掉
+        mainPanelWidth.value = clamped;
+      } else {
+        setMainWidth(clamped);
+      }
+    } else {
+      // 关闭态下主面板吃满窗口 —— 用户在看的这份宽度权威，重新记下来
+      setMainWidth(Math.max(MAIN_MIN_W, Math.round(inner.width)));
+    }
     const minWidth = mainPanelWidth.value + SECONDARY_MIN_W;
     // 下限先设：否则紧接着的 setSize 可能被旧下限挡住（系统会按当前下限夹一次）
     await win.setMinSize(new LogicalSize(minWidth, MIN_H));

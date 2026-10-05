@@ -35,6 +35,7 @@ import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
 import {
   applySecondaryPanel,
   clampMainWidth,
+  commitMainPanelWidth,
   MAIN_MIN_W,
   mainPanelWidth,
   secondaryOpen,
@@ -202,10 +203,12 @@ function onDividerMove(e: PointerEvent): void {
   );
 }
 
-/// 松手：把窗口下限对齐到新的主面板宽度（拖动中不发 IPC）
+/// 松手：把分界线位置落盘（重启后复原就靠它）+ 把窗口下限对齐到新的主面板宽度。
+/// 拖动中不写、不发 IPC —— 每帧一次落盘既吵又会把中间态留在偏好里。
 function onDividerUp(): void {
   if (!dividerDrag.value) return;
   dividerDrag.value = null;
+  commitMainPanelWidth();
   void syncPanelWidthLimits();
 }
 
