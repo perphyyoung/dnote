@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
@@ -34,9 +34,13 @@ import type { Theme } from "@/features/settings/themes";
 import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
 import {
   applySecondaryPanel,
-  SECONDARY_W,
+  clampMainWidth,
+  MAIN_MIN_W,
+  mainPanelWidth,
   secondaryOpen,
+  setMainPanelWidth,
   setSecondaryOpen,
+  syncPanelWidthLimits,
 } from "@/features/settings/secondaryPanel";
 import { log } from "@/utils/logger";
 
@@ -143,6 +147,68 @@ function closeSettings(): void {
   settingsOpen.value = false;
 }
 
+/// ── 次级面板：分界线拖动与那一栏的实际宽度 ────────────────────────────────────
+
+/// 两栏所在的 flex 行（分界线拖动要按它的宽度夹取主面板上限）
+const mainRow = ref<HTMLElement | null>(null);
+/// 拖动会话：只记起点，宽度由「起点 + 指针位移」算，不累加（累加会把抖动也攒起来）
+const dividerDrag = ref<{ startX: number; startWidth: number; containerWidth: number } | null>(
+  null,
+);
+
+/// 次级面板那一栏的**实际**宽度：设置面板的遮罩要止于主面板右缘，而这一栏会被
+/// 拖窗口右缘 / 拖分界线改掉，所以量出来用（`ResizeObserver` 在切布局、拉窗口时都会报）。
+const secondaryWidth = ref(0);
+let secondaryObserver: ResizeObserver | null = null;
+/// 次级面板那一栏的 DOM（`v-if`：收起时是 null，watch 正好跟着装卸观察者）
+const secondaryFrame = ref<HTMLElement | null>(null);
+
+function observeSecondary(el: Element | null): void {
+  secondaryObserver?.disconnect();
+  secondaryObserver = null;
+  if (!(el instanceof HTMLElement)) {
+    secondaryWidth.value = 0;
+    return;
+  }
+  secondaryWidth.value = el.getBoundingClientRect().width;
+  secondaryObserver = new ResizeObserver(([entry]) => {
+    if (entry) secondaryWidth.value = entry.contentRect.width;
+  });
+  secondaryObserver.observe(el);
+}
+
+// 那一栏装卸时跟着装上 / 卸掉观察者（收起时 ref 变 null → 记 0）
+watch(secondaryFrame, observeSecondary);
+
+/// 分界线按下：抓住指针（跑出那 6px 也收得到 move），并 `preventDefault` 挡住 textarea 抢选中
+function onDividerDown(e: PointerEvent): void {
+  const row = mainRow.value;
+  if (!row || !(e.target instanceof HTMLElement)) return;
+  e.preventDefault();
+  e.target.setPointerCapture(e.pointerId);
+  dividerDrag.value = {
+    startX: e.clientX,
+    startWidth: mainPanelWidth.value,
+    containerWidth: row.getBoundingClientRect().width,
+  };
+}
+
+/// 拖动中：只改主面板宽度 —— 次级 `flex-1` 自动让位，**窗口宽一个像素都不动**
+function onDividerMove(e: PointerEvent): void {
+  const drag = dividerDrag.value;
+  if (!drag) return;
+  setMainPanelWidth(
+    clampMainWidth(drag.startWidth + (e.clientX - drag.startX), drag.containerWidth),
+  );
+}
+
+/// 松手：把窗口下限对齐到新的主面板宽度（拖动中不发 IPC）
+function onDividerUp(): void {
+  if (!dividerDrag.value) return;
+  dividerDrag.value = null;
+  void syncPanelWidthLimits();
+}
+
 /// `Esc` 收起：这里挂 `document` 而不是元素级 —— 面板里只有滑块可聚焦，点面板空白处后焦点
 /// 不在任何元素上，元素级监听收不到。（编辑器那两个快捷键不同：它们只在编辑器内有意义，
 /// 才必须元素级、不挂 document。）
@@ -154,7 +220,10 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 }
 
 onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
-onUnmounted(() => document.removeEventListener("keydown", onGlobalKeydown));
+onUnmounted(() => {
+  document.removeEventListener("keydown", onGlobalKeydown);
+  secondaryObserver?.disconnect();
+});
 
 function hideToTray() {
   closeSettings(); // 顺手收起面板：收进托盘时不该留一个"展开着"的界面状态
@@ -166,6 +235,7 @@ function hideToTray() {
 <template>
   <div
     class="relative flex h-full flex-col text-[var(--note-fg)]"
+    :class="dividerDrag ? 'select-none' : ''"
     :style="{ backgroundColor: 'var(--note-bg-window)' }"
     role="application"
     aria-label="dnote 主窗口"
@@ -252,12 +322,13 @@ function hideToTray() {
 
     <!-- 设置面板：在标题条**下方内嵌**弹出（不开独立窗口）。遮罩只盖标题栏以下 ——
          于是面板开着时置顶与 `-` 照常可点，不必"先关面板再点"。 -->
-    <!-- 遮罩与面板都**止于主面板右缘**（`right` 跟着次级面板让位）：设置是主面板的事，
-         展开次级面板后它不该飘到旁边那一栏上。右缘既当遮罩边界，也是 `right-2` 的定位基准。 -->
+    <!-- 遮罩与面板都**止于主面板右缘**（`right` 跟着次级面板的**实际**宽度让位）：设置是主面板
+         的事，展开次级面板后它不该飘到旁边那一栏上。右缘既当遮罩边界，也是 `right-2` 的定位基准；
+         那一栏的宽度会被拖窗口右缘 / 拖分界线改掉，所以由 `ResizeObserver` 量出来，不能写死常量。 -->
     <div
       v-if="settingsOpen"
       class="absolute top-8 bottom-0 left-0 z-30"
-      :style="{ right: secondaryOpen ? `${SECONDARY_W}px` : '0' }"
+      :style="{ right: secondaryOpen ? `${secondaryWidth}px` : '0' }"
       @pointerdown="closeSettings"
     >
       <div
@@ -447,12 +518,19 @@ function hideToTray() {
     </div>
 
     <!-- 两块面板：同一窗口里左右并排（**不是**第二个窗口 —— 见 secondaryPanel.ts）。
-         主面板吃掉剩余宽度，次级面板固定宽、默认不渲染；加宽窗口那件事由 `secondaryPanel.ts` 负责。
+         **窗口宽 = 主面板宽 + 次级面板宽**，两个拖拽点各改它左侧那一栏：
+         - 窗口右缘（系统缩放边框）→ 只改**次级**：所以展开时主面板切成固定宽、次级 `flex-1`
+           吃掉窗口增量（纯 CSS，不挂 `Resized` 监听）；关闭态反过来，主面板 `flex-1` 吃满窗口。
+         - 两栏之间的分界线（次级栏左缘那条热区）→ 改**主面板**宽度，次级让位、窗口不动。
          两栏同高是 flex 行天然给的。 -->
-    <main class="flex min-h-0 flex-1" :style="{ colorScheme: noteColorScheme }">
+    <main ref="mainRow" class="flex min-h-0 flex-1" :style="{ colorScheme: noteColorScheme }">
       <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量）。
            `min-w-0`：不加则 textarea 的固有宽度会把这一栏顶开，次级面板就放不下了。 -->
-      <div class="min-w-0 flex-1">
+      <div
+        class="min-w-0"
+        :class="secondaryOpen ? 'shrink-0' : 'flex-1'"
+        :style="secondaryOpen ? { width: `${mainPanelWidth || MAIN_MIN_W}px` } : undefined"
+      >
         <NoteEditor
           v-if="ready"
           panel="main"
@@ -462,12 +540,27 @@ function hideToTray() {
       </div>
 
       <!-- 次级面板：不常改的笔记单独存一个文件（`dnote-secondary.txt`），操作与主面板完全一致
-           （同一个组件、同一套命令，只差 `panel`）。 -->
+           （同一个组件、同一套命令，只差 `panel`）。`flex-1`：窗口加宽的增量归它，主面板不动。 -->
       <div
         v-if="secondaryOpen"
+        ref="secondaryFrame"
         data-panel-frame="secondary"
-        class="w-80 shrink-0 border-l border-[var(--note-fg-weak)]"
+        class="relative min-w-0 flex-1 border-l border-[var(--note-fg-weak)]"
       >
+        <!-- 分界线热区：盖在那条 1px 边上（跨 ±3px），只在展开时存在。拖它改主面板宽度 ——
+             拖动期间 `preventDefault` 挡住 textarea 的选中，`setPointerCapture` 保证指针跑出
+             这 6px 也照样收得到 move（行拖拽那套也是这个手法，见 NoteEditor.vue）。 -->
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整主面板宽度"
+          class="absolute inset-y-0 left-0 z-30 w-1.5 -translate-x-1/2 cursor-col-resize transition-colors hover:bg-[var(--note-fg-weak)]"
+          @pointerdown="onDividerDown"
+          @pointermove="onDividerMove"
+          @pointerup="onDividerUp"
+          @pointercancel="onDividerUp"
+        ></div>
+
         <NoteEditor
           v-if="secondaryReady"
           panel="secondary"

@@ -441,6 +441,56 @@ export async function pasteAt(page: Page, line = 0): Promise<void> {
   await page.keyboard.press("Control+V");
 }
 
+/// ---- 窗口尺寸（从 OS 侧改）----
+
+/// `SetWindowPos` 的 C# 样板：按 pid 找到第一个**可见**顶层窗口，只改尺寸（不动位置与层级）。
+/// 用 PowerShell 内联编译，不引第三方依赖（与剪贴板那两段同一套路）。
+const WIN_RESIZE_SCRIPT = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class WinResize {
+  private delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
+  public static bool Resize(int pid, int dw, int dh) {
+    IntPtr target = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      uint p;
+      GetWindowThreadProcessId(h, out p);
+      if (p == (uint)pid && IsWindowVisible(h)) { target = h; return false; }
+      return true;
+    }, IntPtr.Zero);
+    if (target == IntPtr.Zero) return false;
+    RECT r;
+    if (!GetWindowRect(target, out r)) return false;
+    // SWP_NOMOVE | SWP_NOZORDER：只改尺寸
+    return SetWindowPos(target, IntPtr.Zero, 0, 0, r.R - r.L + dw, r.B - r.T + dh, 0x0002 | 0x0004);
+  }
+}
+'@
+if (-not [WinResize]::Resize(__PID__, __DW__, __DH__)) { exit 1 }
+`;
+
+/**
+ * 改主窗口尺寸（OS 侧），**等价于用户拖窗口的缩放边框**。
+ *
+ * 为什么非得从系统侧来：拖窗口边框是系统的 hit-test，Playwright 只能操作页面内容 —— 而
+ * 「拖右缘只改次级那一栏」正是被测行为（`secondaryPanel.ts` 让次级 `flex-1` 吃掉窗口增量）。
+ * 副作用：这笔改动会被 `window-state` 记下，但 e2e 的窗口状态是**每个实例自己一份**（见
+ * `DNOTE_WINDOW_STATE`），碰不到 dev 那份。
+ */
+export function resizeWindowBy(pid: number, dw: number, dh: number): void {
+  const script = WIN_RESIZE_SCRIPT.replace("__PID__", String(pid))
+    .replace("__DW__", String(dw))
+    .replace("__DH__", String(dh));
+  execFileSync("powershell", ["-NoProfile", "-Command", script], { stdio: "ignore" });
+}
+
 /// ---- 落盘（每块面板一个文件）----
 
 /// 面板 → 文件名。与 `infra/store.rs` 的 `MAIN_NOTES_FILE` / `SECONDARY_NOTES_FILE` 一致
