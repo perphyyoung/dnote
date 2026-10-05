@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
@@ -157,30 +157,6 @@ const dividerDrag = ref<{ startX: number; startWidth: number; containerWidth: nu
   null,
 );
 
-/// 次级面板那一栏的**实际**宽度：设置面板的遮罩要止于主面板右缘，而这一栏会被
-/// 拖窗口右缘 / 拖分界线改掉，所以量出来用（`ResizeObserver` 在切布局、拉窗口时都会报）。
-const secondaryWidth = ref(0);
-let secondaryObserver: ResizeObserver | null = null;
-/// 次级面板那一栏的 DOM（`v-if`：收起时是 null，watch 正好跟着装卸观察者）
-const secondaryFrame = ref<HTMLElement | null>(null);
-
-function observeSecondary(el: Element | null): void {
-  secondaryObserver?.disconnect();
-  secondaryObserver = null;
-  if (!(el instanceof HTMLElement)) {
-    secondaryWidth.value = 0;
-    return;
-  }
-  secondaryWidth.value = el.getBoundingClientRect().width;
-  secondaryObserver = new ResizeObserver(([entry]) => {
-    if (entry) secondaryWidth.value = entry.contentRect.width;
-  });
-  secondaryObserver.observe(el);
-}
-
-// 那一栏装卸时跟着装上 / 卸掉观察者（收起时 ref 变 null → 记 0）
-watch(secondaryFrame, observeSecondary);
-
 /// 分界线按下：抓住指针（跑出那 6px 也收得到 move），并 `preventDefault` 挡住 textarea 抢选中
 function onDividerDown(e: PointerEvent): void {
   const row = mainRow.value;
@@ -222,11 +198,16 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   closeSettings();
 }
 
+/// 点**标题条**也收起设置面板（用户口径：面板外任何地方）。指针按下即收，与遮罩同一手感。
+/// **齿轮除外**：它是开关本身，让它自己 toggle —— 这里先收、它再翻，面板就"关不掉了"。
+function onHeaderDown(e: PointerEvent): void {
+  if (!settingsOpen.value) return;
+  if (e.target instanceof HTMLElement && e.target.closest('button[aria-label="设置"]')) return;
+  closeSettings();
+}
+
 onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
-onUnmounted(() => {
-  document.removeEventListener("keydown", onGlobalKeydown);
-  secondaryObserver?.disconnect();
-});
+onUnmounted(() => document.removeEventListener("keydown", onGlobalKeydown));
 
 function hideToTray() {
   closeSettings(); // 顺手收起面板：收进托盘时不该留一个"展开着"的界面状态
@@ -247,6 +228,7 @@ function hideToTray() {
     <header
       class="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--note-fg-weak)] px-1.5"
       data-tauri-drag-region
+      @pointerdown="onHeaderDown"
     >
       <!-- 应用图标：与 favicon 同一份资产（`public/icon.png`），装饰性 —— 语义由旁边的名称承担。
            `pointer-events-none` 是为了让事件穿透到 header：抓着图标也能拖窗口（拖动判定看的是
@@ -325,13 +307,13 @@ function hideToTray() {
 
     <!-- 设置面板：在标题条**下方内嵌**弹出（不开独立窗口）。遮罩只盖标题栏以下 ——
          于是面板开着时置顶与 `-` 照常可点，不必"先关面板再点"。 -->
-    <!-- 遮罩与面板都**止于主面板右缘**（`right` 跟着次级面板的**实际**宽度让位）：设置是主面板
-         的事，展开次级面板后它不该飘到旁边那一栏上。右缘既当遮罩边界，也是 `right-2` 的定位基准；
-         那一栏的宽度会被拖窗口右缘 / 拖分界线改掉，所以由 `ResizeObserver` 量出来，不能写死常量。 -->
+    <!-- 遮罩：**整窗**标题条以下（层级与定位都见 `design.md`「叠层」）。点它任意处收起；
+         点**标题条**（遮罩之外）由 `header` 的 `onHeaderDown` 管 —— 齿轮除外（它自己 toggle）。
+         面板因此永远是窗口级浮层：贴窗口右缘 = **齿轮正下方**，与次级面板开不开无关
+         （曾经把它摁在主面板里，展开次级面板后就和齿轮错位了）。 -->
     <div
       v-if="settingsOpen"
-      class="absolute top-8 bottom-0 left-0 z-30"
-      :style="{ right: secondaryOpen ? `${secondaryWidth}px` : '0' }"
+      class="absolute inset-x-0 top-8 bottom-0 z-30"
       @pointerdown="closeSettings"
     >
       <div
@@ -565,7 +547,6 @@ function hideToTray() {
            （同一个组件、同一套命令，只差 `panel`）。`flex-1`：窗口加宽的增量归它，主面板不动。 -->
       <div
         v-if="secondaryOpen"
-        ref="secondaryFrame"
         data-panel-frame="secondary"
         class="relative min-w-0 flex-1 border-l border-[var(--note-fg-weak)]"
       >

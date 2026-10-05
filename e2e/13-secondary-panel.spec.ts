@@ -300,6 +300,46 @@ test.describe("次级面板", () => {
     await expect(frame(page)).toHaveCount(0);
   });
 
+  test("设置面板始终贴窗口右缘（齿轮正下方），点标题条 / 点次级面板都收起", async ({ page }) => {
+    const settings = () => page.getByRole("dialog", { name: "设置" });
+    const gear = () => page.getByRole("button", { name: "设置" });
+    /// 主面板右缘的 x（= 分界线在哪）
+    const mainRightX = () =>
+      page.locator('[data-panel="main"]').evaluate((el) => el.getBoundingClientRect().right);
+
+    await handle(page).click();
+    await expect(frame(page)).toBeVisible();
+    await gear().click();
+    await expect(settings()).toBeVisible();
+
+    // 窗口级浮层：右缘距窗口 8px（`right-2`），**与主面板右缘无关** —— 展开次级面板后不再被摁进主面板
+    const win = await viewportWidth(page);
+    const box = await settings().boundingBox();
+    if (!box) throw new Error("取不到设置面板的位置");
+    const panelRight = box.x + box.width;
+    expect(win - panelRight).toBeLessThanOrEqual(10);
+    expect(panelRight - (await mainRightX())).toBeGreaterThanOrEqual(50);
+    e2eLog.info("[settings]", JSON.stringify({ win, panelRight, mainRight: await mainRightX() }));
+
+    // 点**标题条**（在遮罩之外）也收起 —— 齿轮自己除外（它是开关）
+    await page.mouse.click(100, 16);
+    await expect(settings()).toHaveCount(0);
+
+    // 再开：点**次级面板**区域同样收起（遮罩盖整窗）。
+    // 注意点哪儿：面板宽 224px、就在窗口右缘，贴着右缘点会点进面板里（那里 `pointerdown.stop`，
+    // 不该收起）—— 所以取面板左缘再往左 40px，仍在次级面板范围内。
+    await gear().click();
+    await expect(settings()).toBeVisible();
+    await page.mouse.click(box.x - 40, 200);
+    await expect(settings()).toHaveCount(0);
+
+    // 齿轮仍是开关本身，不会被"外部点击"先收掉（先收再翻就永远关不上了）
+    await gear().click();
+    await expect(settings()).toBeVisible();
+    await gear().click();
+    await expect(settings()).toHaveCount(0);
+  });
+
   test("存储分开：改一块面板，另一个文件一个字节都不动", async ({ app, page }) => {
     await handle(page).click();
     await seedLines(app, page, SECONDARY_NOTE, "secondary");
