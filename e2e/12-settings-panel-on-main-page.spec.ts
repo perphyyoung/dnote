@@ -181,17 +181,37 @@ test.describe("设置面板", () => {
     await gear(page).click();
     await expect(picker).toHaveValue("柔灰"); // 默认那档就是当前值（下拉第一档 = 默认配色）
 
-    // 每个选项用**它自己那套颜色**渲染：名字 + 该组的字色 / 底色，展开就能一眼看出每档长什么样
+    // 每档用**它自己那套颜色**渲染（名字 + 字色 / 底色）
     const mung = page.locator('option[value="豆沙绿"]');
     await expect(mung).toHaveCSS("color", "rgb(43, 58, 47)"); // #2b3a2f
     await expect(mung).toHaveCSS("background-color", "rgb(199, 237, 204)"); // #c7edcc
 
-    // 触发器：文字与那个 ▾ 排在同一条中线上（靠那个**显式** `<button>` 上的 flex 对齐）
+    // 三个颜色项的顺序：搭配在最上面（下拉向下展开时下面留的空间最多）
+    const rowOf = async (label: string) => {
+      const box = await page.getByText(label, { exact: true }).boundingBox();
+      if (!box) throw new Error(`取不到「${label}」的位置`);
+      return box;
+    };
+    const [rowTheme, rowBackground, rowForeground] = await Promise.all([
+      rowOf("颜色搭配推荐"),
+      rowOf("背景颜色"),
+      rowOf("前景颜色"),
+    ]);
+    expect(rowTheme.y).toBeLessThan(rowBackground.y);
+    expect(rowBackground.y).toBeLessThan(rowForeground.y);
+
+    // 触发器：文字与 ▾ 同中线（靠那个**显式** `<button>` 上的 flex 对齐）
     const trigger = page.locator("select.theme-select > button");
     await expect(trigger).toHaveCSS("display", "flex");
     await expect(trigger).toHaveCSS("align-items", "center");
 
-    // 展开弹层（选项在弹层里，收起时量不到），核对"整行色块、四周不留缝"
+    // 触发器落在面板上半部：向上让位，下面留出下拉空间
+    const panelBox = await panel(page).boundingBox();
+    const triggerBox = await picker.boundingBox();
+    if (!panelBox || !triggerBox) throw new Error("取不到面板或触发器的位置");
+    expect(triggerBox.y).toBeLessThan(panelBox.y + panelBox.height / 2);
+
+    // 展开弹层（收起时选项量不到），核对"整行色块、四周无缝"
     await picker.click();
     await expect(mung).toHaveCSS("border-radius", "0px");
     await expect(mung).toHaveCSS("display", "flex");
@@ -205,8 +225,8 @@ test.describe("设置面板", () => {
     if (!first || !second) throw new Error("取不到选项的位置（弹层没展开？）");
     expect(Math.abs(first.y + first.height - second.y)).toBeLessThanOrEqual(1); // 行与行紧挨
 
-    // 20 档都要翻得到：弹层必须能滚到底（给它加 `overflow` 类属性会把滚动条吞掉）。
-    // 把最后一档滚进视野，它得落在窗口内 —— 滚不动的话它就还在窗口下方。
+    // 20 档都要翻得到：弹层能滚到底（加 `overflow` 类属性会吞掉滚动条）。
+    // 末档滚进视野后必须落在窗口内 —— 滚不动它就还在窗口下方。
     const last = page.locator('option[value="樱粉"]');
     await last.scrollIntoViewIfNeeded();
     const lastBox = await last.boundingBox();
@@ -214,8 +234,7 @@ test.describe("设置面板", () => {
     const innerHeight = await page.evaluate(() => window.innerHeight);
     expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(innerHeight + 1);
 
-    // hover 只加描边：那一档的底与字仍是它自己那套（经典 <select> 里这一条守不住 ——
-    // 弹层是平台画的，鼠标扫过就会被系统高亮盖掉颜色）
+    // hover 只加描边：该档底与字不变（经典 <select> 守不住这条：平台弹层会被系统高亮盖掉颜色）
     await mung.hover();
     await expect(mung).toHaveCSS("color", "rgb(43, 58, 47)");
     await expect(mung).toHaveCSS("background-color", "rgb(199, 237, 204)");

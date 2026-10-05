@@ -108,8 +108,7 @@ function closeSettings(): void {
 /// 才必须元素级、不挂 document。）
 function onGlobalKeydown(e: KeyboardEvent): void {
   if (!settingsOpen.value || e.code !== "Escape") return;
-  // 颜色搭配的弹层开着时，`Esc` 先归它 —— 浏览配色不该把整个面板也关掉
-  //（`:open` 是 base-select 打开弹层时的伪类；旧运行时这里只是不匹配，行为不变）
+  // 颜色搭配的弹层开着时 `Esc` 先归它（`:open` 只在 base-select 生效），别把整个面板也关了
   if (document.querySelector("select.theme-select:open")) return;
   closeSettings();
 }
@@ -265,7 +264,44 @@ function hideToTray() {
           </div>
         </div>
 
+        <!-- 颜色搭配推荐：**每个选项用它自己那套颜色渲染**；收起时控件本身按当前两色画，等于一小片预览。
+             选一档 = 把前景与背景一起设好，之后仍可用下面两个取色器微调；两色都不等于任何一档时显示「自定义」。
+             它是**颜色组第一行**（组内不分隔线），排最上面是为了下拉向下展开时下面的空间最多。
+             `theme-select` 启用 `appearance: base-select` 接管弹层，见 `style.css`。 -->
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">颜色搭配推荐</p>
+          <select
+            aria-label="颜色搭配推荐"
+            class="theme-select h-7 w-20 cursor-pointer truncate rounded text-xs"
+            :style="{
+              color: foregroundColor,
+              backgroundColor: backgroundColor,
+              colorScheme: noteColorScheme,
+            }"
+            :value="currentThemeName ?? ''"
+            @change="onThemeChange(($event.target as HTMLSelectElement).value)"
+          >
+            <!-- 触发器：base-select 下必须**显式**写这个按钮（隐式按钮不可样式化）。
+                 写成 `<component is="button">` 而不是直写 `<button>`：Vue 编译器会误报
+                 「button cannot be child of select」（vuejs/core#13608），动态组件绕开那条静态标签校验，
+                 渲染出来仍是原生 `<button>`（`style.css` 里照旧按 `> button` 选中它）。 -->
+            <component is="button">
+              <selectedcontent></selectedcontent>
+            </component>
+            <!-- 只在两个颜色都不等于任何一档时出现：它是**当前选中的那项**，不是可选项 -->
+            <option v-if="currentThemeName === null" value="">自定义</option>
+            <option
+              v-for="theme in THEMES"
+              :key="theme.name"
+              :value="theme.name"
+              :style="{ '--opt-fg': theme.fg, '--opt-bg': theme.bg }"
+            >
+              {{ theme.name }}
+            </option>
+          </select>
+        </div>
+
+        <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">背景颜色</p>
           <div class="flex items-center gap-2">
             <input
@@ -311,46 +347,6 @@ function hideToTray() {
               重置
             </button>
           </div>
-        </div>
-
-        <!-- 颜色搭配推荐：下拉菜单，**每个选项用它自己那套颜色渲染**（名字 + 该组的底 / 字色），
-             展开就能一眼看出每档长什么样；收起时这个控件本身也按当前两个颜色画，等于一小片预览。
-             选一档 = 把前景与背景**一起**设好（没有隐藏联动，之后照样能用上面两个取色器各自微调）；
-             两个颜色都不等于任何一档时，选中项是「自定义」。与上面两个颜色**同组**，不加分隔线。
-             `theme-select` 类启用 `appearance: base-select` 接管弹层（含 hover），见 `style.css`。 -->
-        <div class="flex items-center justify-between gap-2">
-          <p class="text-xs text-slate-300">颜色搭配推荐</p>
-          <select
-            aria-label="颜色搭配推荐"
-            class="theme-select h-7 w-20 cursor-pointer truncate rounded text-xs"
-            :style="{
-              color: foregroundColor,
-              backgroundColor: backgroundColor,
-              colorScheme: noteColorScheme,
-            }"
-            :value="currentThemeName ?? ''"
-            @change="onThemeChange(($event.target as HTMLSelectElement).value)"
-          >
-            <!-- 触发器：base-select 下要**显式**写这个按钮（隐式按钮不可样式化），见 `style.css`。
-                 这里写成 `<component is="button">` 而不是直写 `<button>`：Vue 编译器的 HTML 嵌套校验
-                 还没跟上可定制 select 的新规范，会误报「button cannot be child of select」
-                 （vuejs/core#13608、vite-plugin-vue#828，都还开着、也没有开关）。动态组件不走那条
-                 静态标签校验，渲染出来仍是原生 `<button>` —— 所以 `style.css` 里照旧按 `> button` 选中它。
-                 不支持的运行时整段被忽略，照旧回退成经典 select。 -->
-            <component is="button">
-              <selectedcontent></selectedcontent>
-            </component>
-            <!-- 只在两个颜色都不等于任何一档时出现：它是**当前选中的那项**，不是可选项 -->
-            <option v-if="currentThemeName === null" value="">自定义</option>
-            <option
-              v-for="theme in THEMES"
-              :key="theme.name"
-              :value="theme.name"
-              :style="{ '--opt-fg': theme.fg, '--opt-bg': theme.bg }"
-            >
-              {{ theme.name }}
-            </option>
-          </select>
         </div>
 
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">

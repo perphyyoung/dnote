@@ -66,13 +66,11 @@ body.dragging {
   animation: dnote-drop-flash 220ms ease-out forwards;
 }
 
-/* ── 可定制 select（`appearance: base-select`，Chrome / Edge 135+）───────────────
-   经典 <select> 的弹层由**平台**绘制，CSS 碰不到它 —— 每档自带颜色时，鼠标扫过哪一档就会
-   被系统高亮把那一档的颜色盖掉。开了 base-select 后弹层是**真实 DOM 的 top-layer popover**，
-   于是 hover 归我们管。
-   代价：弹层被限制在**视口内**，不再像平台弹层那样能超出主界面（放不下时它自己翻边 / 滚动）。
-   渐进增强：不支持该特性时只有 `appearance` 与 `::picker(select)` 那几条失效，下面给 `option`
-   写的颜色照旧生效，即回退成经典 <select>。
+/* ── 可定制 select：`appearance: base-select`（Chrome / Edge 135+）接管弹层 ──────
+   经典 <select> 的弹层由平台绘制、CSS 碰不到：hover 会被系统高亮盖掉每档的颜色。
+   开了它，弹层是真实 DOM 的 top-layer popover，hover 归我们管。
+   代价：弹层被限制在**视口内**，不再能超出主界面（放不下时它自己翻边 / 滚动）。
+   渐进增强：不支持时只有 `appearance` 与 `::picker` 几条失效，下面给 `option` 的颜色照旧生效。
    注意：`select` 与 `::picker(select)` 必须**一起** opt-in。 */
 select.theme-select,
 select.theme-select::picker(select) {
@@ -111,9 +109,9 @@ select.theme-select::picker-icon {
   flex: none;
 }
 
-/* 弹层外观：与设置面板同一套深色卡片（UA 默认是白底 + 黑边）。
-   `padding: 0` 让每一档的颜色**整行铺满**；外圆角改用"只给首末行加圆角"（见下），
-   于是色块整行、行间无缝。**别在这里加 `overflow`**：会连弹层自己的滚动条一起吞掉。 */
+/* 弹层外观：与设置面板同款深色卡片（UA 默认白底 + 黑边）。
+   `padding: 0` 让色块**整行铺满**；外圆角改给首末行（见下），于是行间无缝。
+   **别在这里加 `overflow`**：会连弹层自己的滚动条一起吞掉。 */
 select.theme-select::picker(select) {
   border: none;
   border-radius: 6px;
@@ -129,16 +127,15 @@ select.theme-select option:last-of-type {
   border-radius: 0 0 6px 6px;
 }
 
-/* 选中标记（那个 ✓）不显示：选中态靠字重 + 收起状态显示的名字就够，
-   留着它会占位、把每行的文字顶得不居中。 */
+/* 不显示那个 ✓：它会占位、把文字顶得不居中；选中态靠字重 + 收起时显示的名字 */
 select.theme-select option::checkmark {
   display: none;
 }
 
-/* 每一档按它自己的内联变量上色；行高与面板其它行一致（22px），文字上下左右都居中。
-   **颜色只在这里给** —— 别在 `<option>` 上再写内联 `color`/`background`：内联优先级高于下面的
-   `option:hover`，那会让 hover 规则变成死代码。
-   这条规则不在 `@supports` 里：经典 `<select>` 的弹层同样读它（只是 hover 会被平台高亮盖住）。 */
+/* 每档按自己的内联变量上色；行高与面板其它行一致（22px），文字居中。
+   **颜色只在这里给** —— 别在 `<option>` 上再写内联 `color`/`background`：内联会压过下面的
+   `option:hover`，让 hover 规则变死代码。
+   不在 `@supports` 里：经典 `<select>` 的弹层同样读它（只是 hover 会被平台高亮盖住）。 */
 select.theme-select option {
   display: flex;
   align-items: center;
@@ -151,9 +148,8 @@ select.theme-select option {
   background: var(--opt-bg);
 }
 
-/* hover / focus：**重申**该档自己的底与字，压掉平台高亮；提示只靠一圈内描边 ——
-   描边用 `currentColor`（= 它自己的前景色），所以在它自己的底上永远看得见，
-   而且绝不改动底与字，物理上不可能破坏这一档的搭配。 */
+/* hover / focus：重申该档自己的底与字，压掉平台高亮；提示只靠一圈 `currentColor` 内描边 ——
+   描边就是它自己的前景色，所以在它自己的底上永远看得见，且不可能破坏这一档的搭配。 */
 select.theme-select option:hover,
 select.theme-select option:focus {
   color: var(--opt-fg);
