@@ -532,7 +532,7 @@ function hideToTray() {
              与分界线热区（同一位置、`z-30`）：圆在 `z-40`，所以中间那 14px 带点不到分界线（认了）。 -->
         <button
           type="button"
-          class="absolute top-1/2 right-0 z-40 flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--note-bg)] text-[10px] leading-none text-[var(--note-fg-faint)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-[var(--note-fg)]"
+          class="absolute top-1/2 right-0 z-40 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--note-bg)] text-xs leading-none text-[var(--note-fg-faint)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-[var(--note-fg)]"
           :class="secondaryOpen ? 'translate-x-1/2' : ''"
           aria-label="次级面板"
           :aria-expanded="secondaryOpen"

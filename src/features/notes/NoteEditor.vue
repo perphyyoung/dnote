@@ -650,13 +650,16 @@ function flashDropped(index: number): void {
       </button>
       <!-- 当前行右侧的行操作：绝对定位浮在文字上，不占任何布局空间；
            只在指针停在这一行时露头（鼠标指哪就说明在看哪），拖拽中藏起来免得误点 -->
-      <!-- 按钮本身仍是一行高（不该在长行上变胖），所以放在行盒里**竖直居中** -->
+      <!-- 按钮本身仍是一行高（不该在长行上变胖），所以放在行盒里**竖直居中**。
+           `right: 24px` 是给**次级面板那颗圆把手**让位：它圆心锚在主面板右边界、直径 20px，
+           贴着右缘（关闭态）正好占到 x ∈ [W−20, W]，所以按钮组右缘要退到 W−24 才留得出缝
+           （两者都靠右，只能让按钮组让开；代价见 design.md「行内操作」）。 -->
       <div
         v-if="showRowActions"
         class="absolute flex items-center gap-0.5"
         :style="{
           top: `${boxTop(currentLine) + (boxHeight(currentLine) - ROW_H) / 2}px`,
-          right: '6px',
+          right: '24px',
           height: `${ROW_H}px`,
         }"
       >

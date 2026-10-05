@@ -17,10 +17,12 @@ import fs from "node:fs";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import {
+  caretTo,
   dragLine,
   editor,
   editorText,
   expectPersistedLines,
+  hoverRow,
   mirrorBoxes,
   notesFile,
   readPersistedLines,
@@ -273,10 +275,13 @@ test.describe("次级面板", () => {
       page.locator('[data-panel="main"]').evaluate((el) => el.getBoundingClientRect().right);
 
     // 收起态：整圆贴在窗口右缘**内侧**（圆心若严格落在边界上，右半圆会被窗口裁掉）
-    const closedCenter = await circleCenterX();
+    const closedBox = await circle().boundingBox();
+    if (!closedBox) throw new Error("取不到把手的位置");
+    const closedCenter = closedBox.x + closedBox.width / 2;
     const closedWindow = await viewportWidth(page);
     expect(closedWindow).toBeGreaterThanOrEqual(closedCenter); // 圆没被裁到窗外
-    expect(closedWindow).toBeLessThanOrEqual(closedCenter + 9); // 也没有内缩太多
+    // 容差跟着**半径**走（别写死数字：直径改过一次，写死就会假红）
+    expect(closedWindow).toBeLessThanOrEqual(closedCenter + closedBox.width / 2 + 1);
 
     await circle().click();
     await expect(frame(page)).toBeVisible();
@@ -298,6 +303,23 @@ test.describe("次级面板", () => {
     // 再点它 → 直接收起（不往次级面板那侧跑）
     await circle().click();
     await expect(frame(page)).toHaveCount(0);
+  });
+
+  test("把手与行内按钮同高、且横向留出缝（不重合）", async ({ page }) => {
+    // 关闭态是**最坏情况**：把手右缘贴着窗口右缘，行内按钮组也在右缘
+    await caretTo(page, 0, 0);
+    await hoverRow(page, 0);
+    const action = page.getByRole("button", { name: "删除当前行" });
+    await expect(action).toBeVisible();
+
+    const circle = await page.getByRole("button", { name: "次级面板" }).boundingBox();
+    const button = await action.boundingBox();
+    if (!circle || !button) throw new Error("取不到把手 / 行内按钮的位置");
+    e2eLog.info("[handle-vs-action]", JSON.stringify({ circle, button }));
+    // 同高（把手直径 = 行内按钮的 h-5）
+    expect(Math.abs(circle.height - button.height)).toBeLessThanOrEqual(1);
+    // 横向不重合、且留缝：两者都靠右，只能让按钮组让开 24px = 圆直径 + 4px
+    expect(circle.x - (button.x + button.width)).toBeGreaterThanOrEqual(4);
   });
 
   test("设置面板始终贴窗口右缘（齿轮正下方），点标题条 / 点次级面板都收起", async ({ page }) => {
