@@ -53,11 +53,13 @@ const rect = (page: Page, selector: string) =>
 
 /// 把分界线拖 `dx` 像素（正 = 往右 = 主面板变宽）。必须分步移动：一步跳到目标不产生中间的
 /// `pointermove`，而宽度正是按指针位移算的。
+/// 抓**偏上**的位置而不是正中：分界线竖直中段被那颗圆把手压着（`z-40` > 热区 `z-30`），
+/// 抓正中会命中圆把手、变成"收起面板"而拖不动（这正是真人的手感：上下两头能拖，中段是开关）。
 async function dragDivider(page: Page, dx: number): Promise<void> {
   const box = await page.getByRole("separator", { name: "拖动调整主面板宽度" }).boundingBox();
   if (!box) throw new Error("取不到分界线位置");
   const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
+  const y = box.y + box.height * 0.25;
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.mouse.move(x + dx, y, { steps: 8 });
@@ -256,6 +258,46 @@ test.describe("次级面板", () => {
     );
     expect(mainAfter).toBeCloseTo(mainBefore, 0); // 主面板是固定宽：窗口增量全给次级
     expect(secondaryAfter).toBeGreaterThanOrEqual(secondaryBefore + 110);
+  });
+
+  test("把手是个圆，圆心锚在主面板右边界：展开后在分界线上，并跟着分界线走", async ({ page }) => {
+    const circle = () => page.getByRole("button", { name: "次级面板" });
+    /// 把手的圆心 x（视口坐标）
+    const circleCenterX = async () => {
+      const box = await circle().boundingBox();
+      if (!box) throw new Error("取不到把手的位置");
+      return box.x + box.width / 2;
+    };
+    /// 主面板右缘的 x（= 分界线在哪）
+    const mainRightX = () =>
+      page.locator('[data-panel="main"]').evaluate((el) => el.getBoundingClientRect().right);
+
+    // 收起态：整圆贴在窗口右缘**内侧**（圆心若严格落在边界上，右半圆会被窗口裁掉）
+    const closedCenter = await circleCenterX();
+    const closedWindow = await viewportWidth(page);
+    expect(closedWindow).toBeGreaterThanOrEqual(closedCenter); // 圆没被裁到窗外
+    expect(closedWindow).toBeLessThanOrEqual(closedCenter + 9); // 也没有内缩太多
+
+    await circle().click();
+    await expect(frame(page)).toBeVisible();
+    // 展开态：圆心就落在分界线（主面板右缘）上 —— 而不是跑到次级面板右缘去。
+    // 用 poll 等 `translate-x-1/2` 那 150ms 过渡落定：探针实测过渡中读到的是
+    // `matrix(1,0,0,1, 0.384, -7)` —— 差的就是那半个圆（与图钉那条同一个坑，见 `开发经验.md`）。
+    await expect
+      .poll(async () => Math.abs((await circleCenterX()) - (await mainRightX())))
+      .toBeLessThanOrEqual(1);
+
+    // 拖分界线 → 圆跟着走（锚的是主边界，不是窗口）
+    const atOpen = await circleCenterX();
+    await dragDivider(page, -80);
+    await expect
+      .poll(async () => Math.abs((await circleCenterX()) - (await mainRightX())))
+      .toBeLessThanOrEqual(1);
+    expect(atOpen - (await circleCenterX())).toBeGreaterThanOrEqual(70);
+
+    // 再点它 → 直接收起（不往次级面板那侧跑）
+    await circle().click();
+    await expect(frame(page)).toHaveCount(0);
   });
 
   test("存储分开：改一块面板，另一个文件一个字节都不动", async ({ app, page }) => {

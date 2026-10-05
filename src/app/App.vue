@@ -530,7 +530,7 @@ function hideToTray() {
       <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量）。
            `min-w-0`：不加则 textarea 的固有宽度会把这一栏顶开，次级面板就放不下了。 -->
       <div
-        class="min-w-0"
+        class="relative min-w-0"
         :class="secondaryOpen ? 'shrink-0' : 'flex-1'"
         :style="secondaryOpen ? { width: `${mainPanelWidth || MAIN_MIN_W}px` } : undefined"
       >
@@ -540,6 +540,25 @@ function hideToTray() {
           :font-size="fontSize"
           :line-height-ratio="lineHeightRatio"
         />
+
+        <!-- 次级面板的把手：**圆心锚在主面板右边界**，所以它属于主栏（拖分界线时自己就跟着走了，
+             不需要任何监听）。展开态跨在分界线上（`translate-x-1/2`），收起态整圆贴在右缘内侧
+             —— 后者是因为圆心若严格落在窗口右缘，右半圆会被窗口裁掉。
+             装进圆里 + 实心底（`--note-bg`）：它压得住底下的文字与行内按钮；贴着主栏右缘，
+             因此会擦到当前行的「删除」按钮（两者都在右缘，做不到完全不重合 —— 直径收到 14px 后
+             按钮的中心点仍在圆外，`e2e` 的语义点击因此不受影响）。
+             与分界线热区（同一位置、`z-30`）：圆在 `z-40`，所以中间那 14px 带点不到分界线（认了）。 -->
+        <button
+          type="button"
+          class="absolute top-1/2 right-0 z-40 flex h-3.5 w-3.5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--note-bg)] text-[10px] leading-none text-[var(--note-fg-faint)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-[var(--note-fg)]"
+          :class="secondaryOpen ? 'translate-x-1/2' : ''"
+          aria-label="次级面板"
+          :aria-expanded="secondaryOpen"
+          :title="secondaryOpen ? '收起次级面板' : '展开次级面板（不常改的笔记）'"
+          @click="setSecondaryOpen(!secondaryOpen)"
+        >
+          {{ secondaryOpen ? "‹" : "›" }}
+        </button>
       </div>
 
       <!-- 次级面板：不常改的笔记单独存一个文件（`dnote-secondary.txt`），操作与主面板完全一致
@@ -572,20 +591,6 @@ function hideToTray() {
         />
       </div>
     </main>
-
-    <!-- 次级面板的把手：窗口右缘**竖直居中**，收起时是 `›`（向右拉出一栏）、展开后是 `‹`。
-         贴窗口级而不是主面板级：展开后它落在次级面板右缘，位置不动，同一个把手来回切。
-         往左让开 8px（= 细滚动条宽度）：压在滚动条上会把拖动条抢走。 -->
-    <button
-      type="button"
-      class="absolute top-1/2 right-2 z-40 flex h-10 w-3 -translate-y-1/2 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]"
-      aria-label="次级面板"
-      :aria-expanded="secondaryOpen"
-      :title="secondaryOpen ? '收起次级面板' : '展开次级面板（不常改的笔记）'"
-      @click="setSecondaryOpen(!secondaryOpen)"
-    >
-      {{ secondaryOpen ? "‹" : "›" }}
-    </button>
 
     <footer
       v-if="error"
