@@ -7,6 +7,7 @@ import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/aut
 import {
   BACKGROUND_DEFAULT,
   backgroundColor,
+  previewBackgroundColor,
   resetBackgroundColor,
   setBackgroundColor,
 } from "@/features/settings/background";
@@ -14,6 +15,7 @@ import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontSize, setFontSize } from "@/features/
 import {
   FOREGROUND_DEFAULT,
   foregroundColor,
+  previewForegroundColor,
   resetForegroundColor,
   setForegroundColor,
 } from "@/features/settings/foreground";
@@ -78,11 +80,32 @@ function applyTheme(theme: Theme) {
   setBackgroundColor(theme.bg);
 }
 
+/// hover 一档 = 实时预览：只写两个 CSS 变量，不落盘、不动 ref。
+/// 委托到 `<select>`：选项就在 DOM 里，`mouseover` 会冒泡上来；指针移到非选项处（含触发器本身）→ 还原。
+function previewThemeFromEvent(event: MouseEvent): void {
+  const option = event.target instanceof HTMLOptionElement ? event.target : null;
+  const theme = option ? THEMES.find((item) => item.name === option.value) : null;
+  if (!theme) {
+    revertThemePreview();
+    return;
+  }
+  previewForegroundColor(theme.fg);
+  previewBackgroundColor(theme.bg);
+}
+
+/// 还原成**已提交**的那两个颜色（把变量写回 ref 的值）。`mouseleave` / `blur` / 收面板都调它。
+function revertThemePreview(): void {
+  previewForegroundColor(foregroundColor.value);
+  previewBackgroundColor(backgroundColor.value);
+}
+
 /// 下拉里选了一档：按名字找回那一组再应用。`value` 用名字而不是颜色 —— 选项文本要显示中文名，
 /// 而"两个颜色"本身已经由两个偏好各自记着，没必要再往 `value` 里塞一份。
 function onThemeChange(name: string) {
   const theme = THEMES.find((item) => item.name === name);
-  if (theme) applyTheme(theme);
+  if (!theme) return;
+  applyTheme(theme);
+  revertThemePreview(); // 落盘的值就是预览的值：顺手把变量对齐成"已提交"，免得留着上一档的预览
 }
 
 /// 当前两个颜色恰好等于哪一组推荐（都不是就是"自定义"，下拉里显示「自定义」这一项）。
@@ -100,6 +123,7 @@ const noteColorScheme = computed(() =>
 );
 
 function closeSettings(): void {
+  revertThemePreview(); // 面板一收，先把 hover 预览撤掉，别把没提交的颜色留在界面上
   settingsOpen.value = false;
 }
 
@@ -265,6 +289,7 @@ function hideToTray() {
         </div>
 
         <!-- 颜色搭配推荐：**每个选项用它自己那套颜色渲染**；收起时控件本身按当前两色画，等于一小片预览。
+             **hover 一档直接预览**（只写 CSS 变量、不落盘，指针离开控件即还原），点选才落盘。
              选一档 = 把前景与背景一起设好，之后仍可用下面两个取色器微调；两色都不等于任何一档时显示「自定义」。
              它是**颜色组第一行**（组内不分隔线），排最上面是为了下拉向下展开时下面的空间最多。
              `theme-select` 启用 `appearance: base-select` 接管弹层，见 `style.css`。 -->
@@ -280,6 +305,9 @@ function hideToTray() {
             }"
             :value="currentThemeName ?? ''"
             @change="onThemeChange(($event.target as HTMLSelectElement).value)"
+            @mouseover="previewThemeFromEvent"
+            @mouseleave="revertThemePreview"
+            @blur="revertThemePreview"
           >
             <!-- 触发器：base-select 下必须**显式**写这个按钮（隐式按钮不可样式化）。
                  写成 `<component is="button">` 而不是直写 `<button>`：Vue 编译器会误报

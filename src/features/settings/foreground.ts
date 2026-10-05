@@ -46,6 +46,14 @@ export function setForegroundColor(hex: string): void {
   applyForeground(next);
 }
 
+/**
+ * 只预览：写变量，不落盘、不动 ref —— 给「颜色搭配推荐」的 hover 用。
+ * 离开控件时再写回 `foregroundColor.value`（已提交的值）即还原，所以预览永远不会被记住。
+ */
+export function previewForegroundColor(hex: string): void {
+  applyForeground(normalize(hex));
+}
+
 /** 回到默认前景（与「背景颜色」的「重置」同一语义） */
 export function resetForegroundColor(): void {
   setForegroundColor(FOREGROUND_DEFAULT);

@@ -239,6 +239,16 @@ test.describe("设置面板", () => {
     await expect(mung).toHaveCSS("color", "rgb(43, 58, 47)");
     await expect(mung).toHaveCSS("background-color", "rgb(199, 237, 204)");
 
+    // hover = 实时预览：笔记区直接换成那一档（上面刚 hover 过），且**不落盘**
+    await expect(shell).toHaveCSS("background-color", "rgb(199, 237, 204)"); // #c7edcc
+    expect(await editorColor()).toBe("rgb(43, 58, 47)");
+    expect(await page.evaluate(() => localStorage.getItem("dnote:background-color"))).toBeNull();
+
+    // 指针移出控件 → 回到已提交的那两个颜色（预览只存在于 hover 期间）
+    await page.mouse.move(20, 400);
+    await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)"); // #0f172a 默认
+    expect(await editorColor()).toBe("rgb(148, 163, 184)"); // 默认「柔灰」前景
+
     // `Esc` 只收弹层，不该把整个设置面板也关掉
     await page.keyboard.press("Escape");
     await expect(panel(page)).toBeVisible();

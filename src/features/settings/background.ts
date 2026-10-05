@@ -46,6 +46,14 @@ export function setBackgroundColor(hex: string): void {
   applyBackground(next);
 }
 
+/**
+ * 只预览：写变量，不落盘、不动 ref —— 给「颜色搭配推荐」的 hover 用。
+ * 离开控件时再写回 `backgroundColor.value`（已提交的值）即还原，所以预览永远不会被记住。
+ */
+export function previewBackgroundColor(hex: string): void {
+  applyBackground(normalize(hex));
+}
+
 /** 回到默认底色（与 cdown 的「重置」同一语义） */
 export function resetBackgroundColor(): void {
   setBackgroundColor(BACKGROUND_DEFAULT);
