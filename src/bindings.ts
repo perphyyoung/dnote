@@ -5,10 +5,10 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 
 /** Commands */
 export const commands = {
-	/**  读取全部行；行序即界面顺序，前端不再排序。 */
-	loadNotes: () => __TAURI_INVOKE<string[]>("load_notes"),
-	/**  整文件重写（临时文件 + rename 原子替换）。 */
-	saveNotes: (lines: string[]) => __TAURI_INVOKE<null>("save_notes", { lines }),
+	/**  读取某块面板的全部行；行序即界面顺序，前端不再排序。 */
+	loadNotes: (panel: Panel) => __TAURI_INVOKE<string[]>("load_notes", { panel }),
+	/**  整文件重写某块面板（临时文件 + rename 原子替换）。另一块面板的文件不碰。 */
+	saveNotes: (panel: Panel, lines: string[]) => __TAURI_INVOKE<null>("save_notes", { panel, lines }),
 	/**
 	 *  应用开机自启设置，并**回读实际状态**（前端据此判断要不要回滚开关）。
 	 * 
@@ -32,6 +32,9 @@ export const events = {
 /* Types */
 /**  日志级别变更事件（payload 为新级别小写字符串），前端监听后刷新本地缓存。 */
 export type LogLevelChanged = string;
+
+/**  哪块面板。序列化成 `"main"` / `"secondary"`（前端 `useNotes` 的 `Panel` 是同一个联合类型）。 */
+export type Panel = "main" | "secondary";
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

@@ -1,11 +1,18 @@
-//! 纯文本行存储：`<数据目录>/dnote.txt`，一行一条笔记。
+//! 纯文本行存储：`<数据目录>/dnote.txt`（主面板）与 `<数据目录>/dnote-secondary.txt`
+//! （次级面板），一行一条笔记。
 //!
 //! 行序即界面顺序，文件内容与界面逐行一致（可以直接用记事本打开核对），
 //! 因此不存 id、序号或时间戳。写入走「临时文件 + rename」原子替换。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+/// 主面板的笔记文件；文件名只在这里出现一次（`开发经验.md` 里那些 e2e 辅助函数是另一份口径）
+pub const MAIN_NOTES_FILE: &str = "dnote.txt";
+/// 次级面板的笔记文件。**与主面板分开存**：两块面板的笔记互不牵动，
+/// 一个文件被手改坏 / 清空，另一份照旧。
+pub const SECONDARY_NOTES_FILE: &str = "dnote-secondary.txt";
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -83,6 +90,32 @@ impl Store {
         // Windows 上 std::fs::rename 走 MOVEFILE_REPLACE_EXISTING，可覆盖已存在文件
         fs::rename(&tmp, &self.path)?;
         Ok(())
+    }
+}
+
+/// 两块面板的笔记存储（每块一个文件）。**作为整体注册给 tauri 的托管状态** ——
+/// 托管按类型取，注册两个 `Store` 会撞类型（后一个覆盖前一个），所以包一层。
+///
+/// 谁用哪块由 `commands::notes::Panel` 决定；这里只做「哪个面板对应哪个文件」。
+pub struct NotesStores {
+    main: Store,
+    secondary: Store,
+}
+
+impl NotesStores {
+    pub fn new(data_dir: &Path) -> Self {
+        Self {
+            main: Store::new(data_dir.join(MAIN_NOTES_FILE)),
+            secondary: Store::new(data_dir.join(SECONDARY_NOTES_FILE)),
+        }
+    }
+
+    pub fn main(&self) -> &Store {
+        &self.main
+    }
+
+    pub fn secondary(&self) -> &Store {
+        &self.secondary
     }
 }
 

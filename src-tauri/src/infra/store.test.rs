@@ -1,15 +1,22 @@
-use super::{decode_lines, encode_lines, Store};
+use super::{
+    decode_lines, encode_lines, NotesStores, Store, MAIN_NOTES_FILE, SECONDARY_NOTES_FILE,
+};
 use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 每个用例独占一个临时目录（tag + 进程内序号，避免并行用例互相覆盖）。
-fn temp_store(tag: &str) -> Store {
+fn temp_dir(tag: &str) -> PathBuf {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("dnote-test-{}-{tag}-{seq}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    Store::new(dir.join("dnote.txt"))
+    dir
+}
+
+fn temp_store(tag: &str) -> Store {
+    Store::new(temp_dir(tag).join(MAIN_NOTES_FILE))
 }
 
 fn lines(v: &[&str]) -> Vec<String> {
@@ -63,6 +70,35 @@ fn encode_decode_roundtrip_keeps_empty_lines() {
 fn missing_file_reads_as_empty_list() {
     let store = temp_store("missing");
     assert_eq!(store.read_lines().unwrap(), Vec::<String>::new());
+}
+
+/// 两块面板各写各的文件：写次级不动主面板，清空次级也不动主面板。
+#[test]
+fn two_panels_write_independent_files() {
+    let dir = temp_dir("two-panels");
+    let stores = NotesStores::new(&dir);
+
+    stores.main().write_lines(&lines(&["主面板"])).unwrap();
+    stores
+        .secondary()
+        .write_lines(&lines(&["次级面板", ""]))
+        .unwrap();
+
+    assert_eq!(stores.main().read_lines().unwrap(), lines(&["主面板"]));
+    assert_eq!(
+        stores.secondary().read_lines().unwrap(),
+        lines(&["次级面板", ""])
+    );
+    assert!(dir.join(MAIN_NOTES_FILE).exists());
+    assert!(dir.join(SECONDARY_NOTES_FILE).exists());
+
+    // 清空次级：主面板那份必须原样
+    stores.secondary().write_lines(&[]).unwrap();
+    assert_eq!(stores.main().read_lines().unwrap(), lines(&["主面板"]));
+    assert_eq!(
+        stores.secondary().read_lines().unwrap(),
+        Vec::<String>::new()
+    );
 }
 
 #[test]

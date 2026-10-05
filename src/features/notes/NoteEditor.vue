@@ -11,13 +11,18 @@ import {
   moveIndexAfter,
   moveItem,
 } from "@/features/notes/logic";
-import { flushNow, setContent, useNotes } from "@/features/notes/useNotes";
+import type { Panel } from "@/features/notes/useNotes";
+import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
 
-const { content, lines } = useNotes();
+/**
+ * `fontSize` / `lineHeightRatio` 由外壳从设置偏好传入（见 `features/settings/`），两块面板同款；
+ * `panel` 指出这份内容属于哪块面板 —— 它决定读写哪个文件，也是同一套组件能同时服务两块面板的
+ * 全部差异（内部状态如 `boxes` / `drag` 都是 setup 内的 ref，每个实例各一份）。
+ */
+const props = defineProps<{ fontSize: number; lineHeightRatio: number; panel: Panel }>();
 
-/** 正文字号（px）与行高比，都由外壳从设置偏好以 prop 传入（见 `features/settings/`） */
-const props = defineProps<{ fontSize: number; lineHeightRatio: number }>();
+const { content, lines, setContent, flushNow } = useNotes(props.panel);
 
 // 手柄要按行对准，所以行高与内边距不能各写各的：下面 textarea 用行内样式就是为了一处定义、
 // 两处对齐（圆角块里的类名会被 Tailwind 配置牵着走，行内样式不会）。
@@ -545,6 +550,7 @@ function flashDropped(index: number): void {
   <div
     ref="scroller"
     class="relative h-full overflow-y-auto"
+    :data-panel="panel"
     @pointerdown="onScrollerDown"
     @pointermove="onHover"
     @pointerleave="hoverIndex = null"

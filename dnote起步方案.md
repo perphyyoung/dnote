@@ -161,8 +161,8 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 ## 8. 关键配置
 
 - `tauri.conf.json`：`productName: "dnote"`、`version: "../package.json"`、`identifier: "com.dnote.perphyyoung"`、`removeUnusedCommands: true`、`bundle.targets: ["nsis"]`、`build.windows.staticVCRuntime: true`；CSP/devCsp 抄 cdown（去掉 `asset:` 相关指令，`devCsp` 放开 `ws://localhost:1420`）。
-- `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:window:allow-set-always-on-top`、`core:event:allow-listen`、`core:event:allow-unlisten`；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
-- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）、`DNOTE_NO_TRAY`（存在且非空则不建托盘图标，e2e 的 `launchApp` 会注入；窗口与任务栏图标照旧）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
+- `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:window:allow-set-always-on-top`、`core:window:allow-inner-size`、`core:window:allow-scale-factor`、`core:window:allow-set-size`、`core:window:allow-set-min-size`、`core:event:allow-listen`、`core:event:allow-unlisten`（后四条给次级面板开关时加减窗口宽度用）；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
+- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）、`DNOTE_NO_TRAY`（存在且非空则不建托盘图标，e2e 的 `launchApp` 会注入；窗口与任务栏图标照旧）、`DNOTE_WINDOW_STATE`（窗口状态文件：只给名字时相对 app_config_dir，绝对路径则直接用；e2e 注入实例数据目录里的那份，避免与 dev 共用 —— 理由见 §10.16）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
 - vite：端口 `1420` + `strictPort`、`@` → `src`、`define.__APP_VERSION__`、`server.watch.ignored` 用**白名单**（仅 `index.html` + `src/` + `public/`，抄 cdown/paim）。
 - `.gitignore`：根放 `dnote-data*/`、`temp/`、`tmp-*`、`target/`、`node_modules/`、`dist/`、`*.log`；`src-tauri/.gitignore` 放 `/target/`、`/gen/schemas`。`Cargo.lock` 与 `src/bindings.ts` **入库**。
 - 图标：`scripts/gen-icon.mjs` 自研生成（风格抄 cdown 同名脚本）——1024×1024 深色圆角方块 + 三行笔记 + 一行被拖起的红行与 2×3 把手，内容就是「draggable note」；用法 `node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物 `icon.png` 同时拷成 `public/icon.png` 作 favicon。`app-icon.png` 是可再生的中间产物，不入库。
@@ -198,3 +198,6 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 11. **默认置顶**（右上角图钉切换，偏好存 localStorage 而不是 `dnote.txt`）。
 12. **应用内快捷键**：`Ctrl+D` 删除当前行、`Alt+↑/↓` 上下移动当前行（只按光标行、列保持）；用 Web API 的元素级监听，**不引** global-shortcut 插件（那是给全局热键用的，见 §3）；两者都必须能 `Ctrl+Z` 撤销。
 13. **行内操作**：高亮当前行（光标行，失焦即消失）；指针停在这一行时右侧浮出「复制当前行 / 删除当前行」（不占布局空间）；删除与 `Ctrl+D` 同一条实现、可撤销，复制只写剪贴板。
+14. **次级面板 = 同窗第二栏，不是第二个窗口**（右侧放不常改的笔记，默认收起）：用侧栏手写两栏要重做焦点 / 置顶 / 坐标 / 跨窗口协议，而同窗直接复用同一个 `NoteEditor` 就白得「所有操作一样」。展开只是把窗口加宽一栏、收起再减回去，两栏同高由 flex 给。
+15. **两块面板各存一个文件**（`dnote.txt` / `dnote-secondary.txt`）：用户要的是「存储独立」，共用一对命令加 `panel` 参数即可 —— 两块面板的代码路径同一条，不可能只给一边补了功能；文件名集中在 `infra/store.rs`。
+16. **e2e 的窗口几何与 dev 分离**（`DNOTE_WINDOW_STATE`）：`window-state` 插件按文件名写 app_config_dir，dev 与 e2e 本会共用 `window-state.dev.json` —— 用例为次级面板加宽的那一栏会被写回、下一轮再恢复，**每跑一轮窗口宽一栏**（实测撑到 5195px）。见 `开发经验.md`。

@@ -95,8 +95,18 @@ pub fn run() {
             );
             // dev/release 状态文件分离：release 用插件默认名（带前置点，插件内硬编码），
             // dev 单独命名，避免两边共享同一份窗口几何。
-            if cfg!(debug_assertions) {
-                state = state.with_filename("window-state.dev.json");
+            //
+            // `DNOTE_WINDOW_STATE` 再往下细分一层（为 e2e 预留，非空才生效）：**只给名字**时相对
+            // app_config_dir，**给绝对路径**时就用它（`PathBuf::join` 遇绝对路径会整体替换）。
+            // 为什么必须有：e2e 跑的是 debug 构建，与 `pnpm dev` 共用 `window-state.dev.json`
+            // —— 用例把窗口加宽一栏（次级面板）之后，这份几何会被写回、被下一轮和 dev 实例恢复，
+            // 于是每跑一轮就宽一栏（实测撑到 5195px，右边界跑到屏幕外，见 `开发经验.md`）。
+            let name = std::env::var("DNOTE_WINDOW_STATE")
+                .ok()
+                .filter(|value| !value.is_empty())
+                .or_else(|| cfg!(debug_assertions).then(|| "window-state.dev.json".to_string()));
+            if let Some(name) = name {
+                state = state.with_filename(name);
             }
             state.build()
         })
@@ -133,7 +143,7 @@ pub fn run() {
             // 存储初始化：数据目录分离（dev=<项目根>/dnote-data，release=<app_config_dir>）
             let data_dir = infra::store::data_dir(app.handle());
             std::fs::create_dir_all(&data_dir)?;
-            app.manage(infra::store::Store::new(data_dir.join("dnote.txt")));
+            app.manage(infra::store::NotesStores::new(&data_dir));
             app.manage(commands::hotkey::HotkeyHeld::default());
 
             // 托盘常驻：无边框窗口没有系统按钮，托盘是「显示 / 退出」的兜底出口。

@@ -32,9 +32,17 @@ import {
 } from "@/features/settings/lineHeight";
 import type { Theme } from "@/features/settings/themes";
 import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
+import {
+  applySecondaryPanel,
+  SECONDARY_W,
+  secondaryOpen,
+  setSecondaryOpen,
+} from "@/features/settings/secondaryPanel";
 import { log } from "@/utils/logger";
 
-const { ready, error } = useNotes();
+const { ready, error } = useNotes("main");
+/// 次级面板那份内容与主面板各读各的文件（同一套 `useNotes`，只差一个面板名）
+const { ready: secondaryReady } = useNotes("secondary");
 
 /// 置顶偏好存 WebView 的 localStorage：它是「界面偏好」而不是笔记内容，
 /// 混进 dnote.txt 会破坏「存储内容 = 界面内容」的约定。窗口配置默认置顶，
@@ -69,6 +77,9 @@ onMounted(() => {
   void applyPin(localStorage.getItem(PIN_KEY) !== "0");
   // 开机自启同理：按偏好（缺省 = 开）幂等应用一次；后端在 dev / 无人值守下不写注册表
   void applyAutoStart();
+  // 次级面板：按偏好（缺省 = 关）把窗口兜到放得下的宽度。窗口尺寸由 window-state 恢复，
+  // 这里只补「恢复出来的宽度装不下两栏」这种情况。
+  void applySecondaryPanel();
 });
 
 /// 设置面板底部的版本号：构建期由 vite 注入（`define`），单一事实源是 package.json。
@@ -241,9 +252,12 @@ function hideToTray() {
 
     <!-- 设置面板：在标题条**下方内嵌**弹出（不开独立窗口）。遮罩只盖标题栏以下 ——
          于是面板开着时置顶与 `-` 照常可点，不必"先关面板再点"。 -->
+    <!-- 遮罩与面板都**止于主面板右缘**（`right` 跟着次级面板让位）：设置是主面板的事，
+         展开次级面板后它不该飘到旁边那一栏上。右缘既当遮罩边界，也是 `right-2` 的定位基准。 -->
     <div
       v-if="settingsOpen"
-      class="absolute inset-x-0 top-8 bottom-0 z-30"
+      class="absolute top-8 bottom-0 left-0 z-30"
+      :style="{ right: secondaryOpen ? `${SECONDARY_W}px` : '0' }"
       @pointerdown="closeSettings"
     >
       <div
@@ -432,10 +446,50 @@ function hideToTray() {
       </div>
     </div>
 
-    <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量） -->
-    <main class="min-h-0 flex-1" :style="{ colorScheme: noteColorScheme }">
-      <NoteEditor v-if="ready" :font-size="fontSize" :line-height-ratio="lineHeightRatio" />
+    <!-- 两块面板：同一窗口里左右并排（**不是**第二个窗口 —— 见 secondaryPanel.ts）。
+         主面板吃掉剩余宽度，次级面板固定宽、默认不渲染；加宽窗口那件事由 `secondaryPanel.ts` 负责。
+         两栏同高是 flex 行天然给的。 -->
+    <main class="flex min-h-0 flex-1" :style="{ colorScheme: noteColorScheme }">
+      <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量）。
+           `min-w-0`：不加则 textarea 的固有宽度会把这一栏顶开，次级面板就放不下了。 -->
+      <div class="min-w-0 flex-1">
+        <NoteEditor
+          v-if="ready"
+          panel="main"
+          :font-size="fontSize"
+          :line-height-ratio="lineHeightRatio"
+        />
+      </div>
+
+      <!-- 次级面板：不常改的笔记单独存一个文件（`dnote-secondary.txt`），操作与主面板完全一致
+           （同一个组件、同一套命令，只差 `panel`）。 -->
+      <div
+        v-if="secondaryOpen"
+        data-panel-frame="secondary"
+        class="w-80 shrink-0 border-l border-[var(--note-fg-weak)]"
+      >
+        <NoteEditor
+          v-if="secondaryReady"
+          panel="secondary"
+          :font-size="fontSize"
+          :line-height-ratio="lineHeightRatio"
+        />
+      </div>
     </main>
+
+    <!-- 次级面板的把手：窗口右缘**竖直居中**，收起时是 `›`（向右拉出一栏）、展开后是 `‹`。
+         贴窗口级而不是主面板级：展开后它落在次级面板右缘，位置不动，同一个把手来回切。
+         往左让开 8px（= 细滚动条宽度）：压在滚动条上会把拖动条抢走。 -->
+    <button
+      type="button"
+      class="absolute top-1/2 right-2 z-40 flex h-10 w-3 -translate-y-1/2 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]"
+      aria-label="次级面板"
+      :aria-expanded="secondaryOpen"
+      :title="secondaryOpen ? '收起次级面板' : '展开次级面板（不常改的笔记）'"
+      @click="setSecondaryOpen(!secondaryOpen)"
+    >
+      {{ secondaryOpen ? "‹" : "›" }}
+    </button>
 
     <footer
       v-if="error"

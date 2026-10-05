@@ -112,10 +112,18 @@ async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
     // 不建托盘：并行 4 worker × 每文件一实例，系统托盘会被一串 DEV 图标塞满，还会盖住常驻实例的图标。
     // 代价：e2e 里不要点 header 的 `-`（隐藏到托盘），没有托盘就再没有唤回入口了。
     DNOTE_NO_TRAY: "1",
+    // 窗口几何**跟着数据目录走**（绝对路径）：否则 e2e 与 `pnpm dev` 共用
+    // `%APPDATA%\com.dnote.perphyyoung\window-state.dev.json` —— 用例为了次级面板把窗口加宽一栏，
+    // 这份几何会被写回、被下一轮恢复，每跑一轮宽一栏（实测撑到 5195px，右边界跑到屏幕外）。
+    // 放在实例自己的数据目录里还有个额外好处：每个实例都从 `tauri.conf.json` 的默认几何起跑，
+    // 用例不必迁就上一轮留下的窗口大小；目录连同状态文件在实例收尾时一起删掉（见 stopApp）。
+    DNOTE_WINDOW_STATE: path.join(dataDir, "window-state.json"),
     // WebView2 profile 按 worker 复用（worker 内文件是顺序跑的，不会同时开两个实例）
     WEBVIEW2_USER_DATA_FOLDER: path.join(TEMP, `wv2-w${workerIndex}`),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
   };
+  // 数据目录先建出来：窗口状态的保存可能早于第一次落笔（它写的就是这个目录里的那个文件）
+  fs.mkdirSync(dataDir, { recursive: true });
   const child = spawn(exePath(), [], { cwd: ROOT, env, stdio: "ignore" });
   child.on("error", (e) => e2eLog.error(`[app] spawn 失败：${e.message}`));
   child.on("exit", (code) => e2eLog.info("[app] 进程退出", { code }));
@@ -211,36 +219,54 @@ async function findPageByWindowLabel(
 }
 
 /// ---- 编辑器 ----
-/// 界面上只有**一个** textarea：整份笔记就是它的 value，行是其中的 `\n` 分隔（见 useNotes.ts）。
+/// 界面上**每块面板一个** textarea：整份笔记就是它的 value，行是其中的 `\n` 分隔（见 useNotes.ts）。
 /// 编辑语义（回车拆行、退格 / 删除合并、↑↓ 行间移动、多行选区与 Ctrl+C）全部是浏览器原生的，
 /// 所以测试侧也不再需要「行选区」那套定位器。
+/// 面板维度：`data-panel` 挂在每块面板的编辑器根上，定位一律从它出发 —— 次级面板展开后
+/// 界面上会有两个 textarea / 两个镜像层，不限定面板的定位器会撞上 strict mode。
+
+/** 哪块面板。与 `bindings.ts` 的 `Panel`、`useNotes.ts` 的 `Panel` 是同一个联合类型。 */
+export type Panel = "main" | "secondary";
+
+/** 面板根元素（编辑器那一层） */
+export function panelRoot(page: Page, panel: Panel = "main"): Locator {
+  return page.locator(`[data-panel="${panel}"]`);
+}
 
 /// 编辑器本身（aria-label 固定为「笔记内容」）
-export function editor(page: Page): Locator {
-  return page.getByRole("textbox", { name: "笔记内容" });
+export function editor(page: Page, panel: Panel = "main"): Locator {
+  return panelRoot(page, panel).getByRole("textbox", { name: "笔记内容" });
 }
 
 /// 编辑器里的全文（行序即上下顺序）
-export function editorText(page: Page): Promise<string> {
-  return editor(page).inputValue();
+export function editorText(page: Page, panel: Panel = "main"): Promise<string> {
+  return editor(page, panel).inputValue();
 }
 
 /// 镜像测层里每个逻辑行的视口矩形（渲染实测，不是前端算的）—— 折行相关用例靠它对齐几何
-export function mirrorBoxes(page: Page): Promise<{ top: number; height: number }[]> {
-  return page.evaluate(() => {
-    const mirror = document.querySelector("[data-mirror]");
+export function mirrorBoxes(
+  page: Page,
+  panel: Panel = "main",
+): Promise<{ top: number; height: number }[]> {
+  return page.evaluate((which) => {
+    const mirror = document.querySelector(`[data-panel="${which}"] [data-mirror]`);
     if (!(mirror instanceof HTMLElement)) return [];
     return Array.from(mirror.children, (child) => {
       const rect = child.getBoundingClientRect();
       return { top: rect.top, height: rect.height };
     });
-  });
+  }, panel);
 }
 
 /// 把光标放到第 line 行（0 起）的 column 列。用来构造「行首回车」「多行选择」这类前置状态：
 /// 这些用例要的正是**光标位置**，而不只是焦点（原生行为按光标位置决定结果）。
-export function caretTo(page: Page, line: number, column = 0): Promise<void> {
-  return editor(page).evaluate(
+export function caretTo(
+  page: Page,
+  line: number,
+  column = 0,
+  panel: Panel = "main",
+): Promise<void> {
+  return editor(page, panel).evaluate(
     (el, at) => {
       const area = el as HTMLTextAreaElement;
       area.focus();
@@ -257,15 +283,15 @@ export function caretTo(page: Page, line: number, column = 0): Promise<void> {
 }
 
 /// 每行的拖拽手柄（按行序，等价于界面上的上下顺序）
-export function lineHandles(page: Page): Locator {
-  return page.getByRole("button", { name: "拖拽调整顺序" });
+export function lineHandles(page: Page, panel: Panel = "main"): Locator {
+  return panelRoot(page, panel).getByRole("button", { name: "拖拽调整顺序" });
 }
 
 /// 当前行高（px）：读 textarea 的**计算样式**，别在用例里写死。
 /// 行高由正文字号按比例派生，而字号用户可改、也会被同一 worker 的其它 spec 留下痕迹
 /// （共用一份 WebView profile），写死既会过期又会随机器状态飘。
-export async function rowHeight(page: Page): Promise<number> {
-  return editor(page).evaluate((el) => {
+export async function rowHeight(page: Page, panel: Panel = "main"): Promise<number> {
+  return editor(page, panel).evaluate((el) => {
     const value = Number.parseFloat(getComputedStyle(el).lineHeight);
     if (!Number.isFinite(value)) throw new Error("取不到行高：line-height 不是 px 值");
     return value;
@@ -380,8 +406,13 @@ export function readClipboard(): string {
 
 /// 按住第 from 行的手柄，把它拖到第 to 行。
 /// 必须分步移动：一步跳到目标不会产生中间的 pointermove，而指针位置正是落点的依据。
-export function dragLine(page: Page, from: number, to: number): Promise<void> {
-  return dragLineWith(page, from, to, async () => {});
+export function dragLine(
+  page: Page,
+  from: number,
+  to: number,
+  panel: Panel = "main",
+): Promise<void> {
+  return dragLineWith(page, from, to, async () => {}, panel);
 }
 
 /// 分步拖拽：按下 → 移到第 to 行 → 调用 `during`（此刻**还没松手**，可以断言拖动中的状态）→ 松手。
@@ -390,9 +421,10 @@ export async function dragLineWith(
   from: number,
   to: number,
   during: () => Promise<void>,
+  panel: Panel = "main",
 ): Promise<void> {
-  const a = await lineHandles(page).nth(from).boundingBox();
-  const b = await lineHandles(page).nth(to).boundingBox();
+  const a = await lineHandles(page, panel).nth(from).boundingBox();
+  const b = await lineHandles(page, panel).nth(to).boundingBox();
   if (!a || !b) throw new Error(`取不到第 ${from} / ${to} 行的手柄位置`);
   await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
   await page.mouse.down();
@@ -409,14 +441,26 @@ export async function pasteAt(page: Page, line = 0): Promise<void> {
   await page.keyboard.press("Control+V");
 }
 
-/// ---- 落盘（dnote.txt）----
+/// ---- 落盘（每块面板一个文件）----
+
+/// 面板 → 文件名。与 `infra/store.rs` 的 `MAIN_NOTES_FILE` / `SECONDARY_NOTES_FILE` 一致
+/// （跨语言无法共享常量，改了要同步）。
+const NOTES_FILES: Record<Panel, string> = {
+  main: "dnote.txt",
+  secondary: "dnote-secondary.txt",
+};
+
+/** 某块面板的笔记文件绝对路径 */
+export function notesFile(dataDir: string, panel: Panel = "main"): string {
+  return path.join(dataDir, NOTES_FILES[panel]);
+}
 
 /// 按 `infra/store.rs` 的写入规则编码（每行都以 `\n` 结尾，含最后一行）
 function encodeLines(lines: string[]): string {
   return lines.map((l) => `${l}\n`).join("");
 }
 
-/// 解码 `dnote.txt`：与 `infra/store.rs` 的 `decode_lines` 同一套规则
+/// 解码笔记文件：与 `infra/store.rs` 的 `decode_lines` 同一套规则
 /// （写入时每行都以 `\n` 结尾；读取时丢弃末尾由终止换行产生的空串，兼容 CRLF）。
 function decodeLines(raw: string): string[] {
   const lines = raw.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l));
@@ -424,23 +468,27 @@ function decodeLines(raw: string): string[] {
   return lines;
 }
 
-/// 读落盘的行；文件不存在视为空列表
-export function readPersistedLines(dataDir: string): string[] {
-  const file = path.join(dataDir, "dnote.txt");
+/// 读某块面板落盘的行；文件不存在视为空列表
+export function readPersistedLines(dataDir: string, panel: Panel = "main"): string[] {
+  const file = notesFile(dataDir, panel);
   if (!fs.existsSync(file)) return [];
   return decodeLines(fs.readFileSync(file, "utf8"));
 }
 
 /// 等落盘的行与期望一致（写文件是异步的）
-export function expectPersistedLines(dataDir: string, lines: string[]): Promise<void> {
-  return expect.poll(() => readPersistedLines(dataDir), { timeout: 3_000 }).toEqual(lines);
+export function expectPersistedLines(
+  dataDir: string,
+  lines: string[],
+  panel: Panel = "main",
+): Promise<void> {
+  return expect.poll(() => readPersistedLines(dataDir, panel), { timeout: 3_000 }).toEqual(lines);
 }
 
 /// 应用落盘的防抖时长（`useNotes.ts` 的 `SAVE_DEBOUNCE_MS`；跨语言无法共享，改了要同步）
 const SAVE_DEBOUNCE_MS = 400;
 
 /**
- * 等 `dnote.txt` 不再被应用改写：连续 `SAVE_DEBOUNCE_MS + 100` 毫秒 mtime 不变才算安静。
+ * 等某个笔记文件不再被应用改写：连续 `SAVE_DEBOUNCE_MS + 100` 毫秒 mtime 不变才算安静。
  *
  * 为什么必须等：应用的落盘是「防抖 400ms + 异步 IPC」。前一条用例停止编辑后，写入还会**迟到**
  * 一小会儿（`applyEdit` 走 `flushNow`，那一笔 IPC 已经在飞；reload 只会丢掉挂起的定时器，
@@ -466,44 +514,56 @@ async function waitForFileQuiet(file: string, timeoutMs = 4_000): Promise<void> 
       stableSince = Date.now();
     }
   }
-  e2eLog.warn("[seed] 等 dnote.txt 安静超时，仍继续（有撞上迟到落盘的风险）");
+  e2eLog.warn(`[seed] 等 ${path.basename(file)} 安静超时，仍继续（有撞上迟到落盘的风险）`);
 }
 
 function mtimeOf(file: string): number {
   return fs.existsSync(file) ? fs.statSync(file).mtimeMs : 0;
 }
 
-/// 我们**自己**上次写种子之后的 mtime：此后文件没被别人动过，就说明没有挂起的应用写入要等
-let lastSeedMtime = 0;
+/// 我们**自己**上次写种子之后的 mtime（**按文件记**：两块面板的种子互不干扰）：
+/// 此后文件没被别人动过，就说明没有挂起的应用写入要等
+const lastSeedMtime = new Map<string, number>();
 
-/// 把 `dnote.txt` 预置成指定内容，并让应用重新读取（reload 会重跑前端初始化）。
+/// 把某块面板的笔记文件预置成指定内容，并让应用重新读取（reload 会重跑前端初始化）。
 /// 同文件的多个用例共用一个实例，靠它把状态复位到已知起点，避免「用 UI 造数据」把
 /// 被测功能之外的链路也拉进来。空文件就是空编辑器，不需要再补行（见 design.md）。
 ///
 /// 写之前先等应用安静（见 `waitForFileQuiet`），写完**界面与文件两边都核对**；
 /// 万一那一笔迟到写入还是抢在后面（窄窗口竞争），再写一次 —— 这时应用内存已经与我们一致，必然收敛。
-export async function seedLines(app: AppHandle, page: Page, lines: string[]): Promise<void> {
-  const file = path.join(app.dataDir, "dnote.txt");
+///
+/// `panel` 默认主面板：老用例的写法与行为都不变；次级面板要先展开（那个 textarea 才存在）。
+export async function seedLines(
+  app: AppHandle,
+  page: Page,
+  lines: string[],
+  panel: Panel = "main",
+): Promise<void> {
+  const file = notesFile(app.dataDir, panel);
   const want = lines.join("\n");
   fs.mkdirSync(app.dataDir, { recursive: true });
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     // 要不要先等它安静：① 应用手上还有没落盘的改动（界面 ≠ 文件，防抖没到点）；
     // ② 文件刚被它写过（可能有一笔 IPC 还在飞）。两者都不是就说明没什么可等的，直接写。
-    const dirty = readPersistedLines(app.dataDir).join("\n") !== (await editor(page).inputValue());
-    if (dirty || mtimeOf(file) !== lastSeedMtime) await waitForFileQuiet(file);
+    const dirty =
+      readPersistedLines(app.dataDir, panel).join("\n") !==
+      (await editor(page, panel).inputValue());
+    if (dirty || mtimeOf(file) !== lastSeedMtime.get(file)) await waitForFileQuiet(file);
     fs.writeFileSync(file, encodeLines(lines), "utf8");
-    lastSeedMtime = mtimeOf(file);
+    lastSeedMtime.set(file, mtimeOf(file));
     await page.reload();
     try {
       // 界面走 poll：reload 之后前端要异步读一次文件才填上
-      await expect(editor(page)).toHaveValue(want, { timeout: 1_500 });
-      if (readPersistedLines(app.dataDir).join("\n") === want) return;
+      await expect(editor(page, panel)).toHaveValue(want, { timeout: 1_500 });
+      if (readPersistedLines(app.dataDir, panel).join("\n") === want) return;
       e2eLog.warn(`[seed] 第 ${attempt} 次：界面对了但文件被盖掉，重写再试`);
     } catch {
       e2eLog.warn(`[seed] 第 ${attempt} 次：种子没站稳（多半被应用的迟到落盘盖掉），重写再试`);
     }
   }
-  throw new Error(`seedLines 两次尝试后仍未把 dnote.txt 置为期望内容：${JSON.stringify(lines)}`);
+  throw new Error(
+    `seedLines 两次尝试后仍未把 ${NOTES_FILES[panel]} 置为期望内容：${JSON.stringify(lines)}`,
+  );
 }
 
 /// ---- fixture ----
