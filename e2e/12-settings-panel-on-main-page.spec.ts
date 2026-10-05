@@ -70,6 +70,7 @@ test.describe("设置面板", () => {
       for (const key of [
         "dnote:font-size",
         "dnote:background-color",
+        "dnote:background-alpha",
         "dnote:foreground-color",
         "dnote:line-height",
         "dnote:autostart",
@@ -139,6 +140,18 @@ test.describe("设置面板", () => {
     await page.getByRole("button", { name: "重置背景颜色" }).click();
     await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)");
     await expect(page.getByRole("button", { name: "重置背景颜色" })).toHaveCount(0); // 已回默认 → 按钮收起
+
+    // 背景透明度：整窗背景的 alpha（1 = 不透明）。0.6 时计算值就该带 alpha
+    const alphaSlider = page.getByLabel("背景透明度", { exact: true });
+    await alphaSlider.fill("0.6");
+    await expect(shell).toHaveCSS("background-color", "rgba(15, 23, 42, 0.6)");
+
+    await page.reload();
+    await expect(shell).toHaveCSS("background-color", "rgba(15, 23, 42, 0.6)"); // localStorage 记住了
+
+    await gear(page).click();
+    await page.getByLabel("背景透明度", { exact: true }).fill("1");
+    await expect(shell).toHaveCSS("background-color", "rgb(15, 23, 42)"); // 1 时不带 alpha
   });
 
   test("改前景：正文与镜像同源、左槽标记跟随、重载后记住、可重置", async ({ page, app }) => {
@@ -192,13 +205,15 @@ test.describe("设置面板", () => {
       if (!box) throw new Error(`取不到「${label}」的位置`);
       return box;
     };
-    const [rowTheme, rowBackground, rowForeground] = await Promise.all([
+    const [rowTheme, rowForeground, rowBackground, rowAlpha] = await Promise.all([
       rowOf("颜色搭配推荐"),
-      rowOf("背景颜色"),
       rowOf("前景颜色"),
+      rowOf("背景颜色"),
+      rowOf("背景透明度"),
     ]);
-    expect(rowTheme.y).toBeLessThan(rowBackground.y);
-    expect(rowBackground.y).toBeLessThan(rowForeground.y);
+    expect(rowTheme.y).toBeLessThan(rowForeground.y); // 搭配是组首
+    expect(rowForeground.y).toBeLessThan(rowBackground.y);
+    expect(rowBackground.y).toBeLessThan(rowAlpha.y); // 透明度紧接背景颜色
 
     // 触发器：文字与 ▾ 同中线（靠那个**显式** `<button>` 上的 flex 对齐）
     const trigger = page.locator("select.theme-select > button");

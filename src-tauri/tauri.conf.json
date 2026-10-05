@@ -29,7 +29,7 @@
         "resizable": true,
         "fullscreen": false,
         "theme": "Dark",
-        "backgroundColor": [15, 23, 42, 255]
+        "transparent": true
       }
     ],
     "security": {

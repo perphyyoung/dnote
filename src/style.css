@@ -11,6 +11,9 @@
   /* 笔记区底色：设置面板覆盖（`features/settings/background.ts`）。只给外壳用，
      标题条 / 面板 / 拖拽层等界面 chrome 各有自己的 slate 色，不跟它走。 */
   --note-bg: #0f172a;
+  /* 外壳真正画的那一层：底色 + 背景透明度（`features/settings/background.ts` 写它）。
+     与 `--note-bg` 分开：幽灵行实底、对比度计算都要求那个是**不透明**的十六进制。 */
+  --note-bg-window: #0f172a;
   /* 笔记正文前景：设置面板覆盖（`features/settings/foreground.ts`）。正文、镜像、左槽标记
      （续行箭头 / 手柄）与下面那些色罩全读它 —— 一套搭配要深浅都能用，这些就不能写死 slate。 */
   --note-fg: #94a3b8;
@@ -43,8 +46,9 @@ body,
 body {
   margin: 0;
   overflow: hidden;
-  /* slate-900，与窗口的 backgroundColor 一致：首帧之前也不闪白 */
-  background: #0f172a;
+  /* 必须透明：窗口本身是 `transparent: true`，底色由外壳根节点按「背景透明度」画
+     （这里若写死不透明色，调低透明度就透不出桌面了） */
+  background: transparent;
 }
 
 /* 拖拽排序期间：禁掉文本选中与默认光标，避免拖动时选中行内文字 */

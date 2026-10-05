@@ -5,10 +5,15 @@ import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
 import {
+  BACKGROUND_ALPHA_MAX,
+  BACKGROUND_ALPHA_MIN,
+  BACKGROUND_ALPHA_STEP,
   BACKGROUND_DEFAULT,
+  backgroundAlpha,
   backgroundColor,
   previewBackgroundColor,
   resetBackgroundColor,
+  setBackgroundAlpha,
   setBackgroundColor,
 } from "@/features/settings/background";
 import { FONT_SIZE_MAX, FONT_SIZE_MIN, fontSize, setFontSize } from "@/features/settings/fontSize";
@@ -150,7 +155,7 @@ function hideToTray() {
 <template>
   <div
     class="relative flex h-full flex-col text-[var(--note-fg)]"
-    :style="{ backgroundColor: 'var(--note-bg)' }"
+    :style="{ backgroundColor: 'var(--note-bg-window)' }"
     role="application"
     aria-label="dnote 主窗口"
   >
@@ -329,6 +334,32 @@ function hideToTray() {
           </select>
         </div>
 
+        <!-- 前景颜色：取色器 + 非默认时「重置」。它喂 `--note-fg`，正文 / 镜像 / 左槽标记 / 色罩
+             都跟它走 —— 浅色搭配下才不至于消失或发脏（见 `features/settings/foreground.ts`）。 -->
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-xs text-slate-300">前景颜色</p>
+          <div class="flex items-center gap-2">
+            <input
+              type="color"
+              aria-label="前景颜色"
+              class="h-7 w-10 cursor-pointer rounded bg-slate-800"
+              :value="foregroundColor"
+              @input="setForegroundColor(($event.target as HTMLInputElement).value)"
+            />
+            <button
+              v-if="foregroundColor !== FOREGROUND_DEFAULT"
+              type="button"
+              class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+              aria-label="重置前景颜色"
+              @click="resetForegroundColor"
+            >
+              重置
+            </button>
+          </div>
+        </div>
+
+        <!-- 背景颜色：与「前景颜色」同款。它喂 `--note-bg`（不透明的那份，幽灵行实底也用它），
+             整窗真正画的是 `--note-bg-window`（这一份 + 下面的透明度）。 -->
         <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">背景颜色</p>
           <div class="flex items-center gap-2">
@@ -352,28 +383,25 @@ function hideToTray() {
           </div>
         </div>
 
-        <!-- 前景颜色：与「背景颜色」同款（取色器 + 非默认时出现「重置」）。它喂 `--note-fg`，
-             正文 / 镜像 / 左槽标记（续行箭头、手柄）与各种色罩都跟着它走 —— 浅色搭配下这些
-             才不至于消失或发脏（见 `features/settings/foreground.ts`）。 -->
+        <!-- 背景透明度：**整窗**背景的不透明度（1 = 不透明）。滑块 + 定宽读数，与字号 / 行高比同构。
+             窗口本身是 `transparent: true`（见 `tauri.conf.json`），所以调低它真的透出桌面。
+             下限 0.1：再低就没法保证文字与桌面壁纸的对比了。 -->
         <div class="flex items-center justify-between gap-2">
-          <p class="text-xs text-slate-300">前景颜色</p>
+          <p class="text-xs text-slate-300">背景透明度</p>
           <div class="flex items-center gap-2">
             <input
-              type="color"
-              aria-label="前景颜色"
-              class="h-7 w-10 cursor-pointer rounded bg-slate-800"
-              :value="foregroundColor"
-              @input="setForegroundColor(($event.target as HTMLInputElement).value)"
+              type="range"
+              :min="BACKGROUND_ALPHA_MIN"
+              :max="BACKGROUND_ALPHA_MAX"
+              :step="BACKGROUND_ALPHA_STEP"
+              aria-label="背景透明度"
+              class="w-20 accent-slate-400"
+              :value="backgroundAlpha"
+              @input="setBackgroundAlpha(Number(($event.target as HTMLInputElement).value))"
             />
-            <button
-              v-if="foregroundColor !== FOREGROUND_DEFAULT"
-              type="button"
-              class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
-              aria-label="重置前景颜色"
-              @click="resetForegroundColor"
-            >
-              重置
-            </button>
+            <span class="w-9 text-right text-xs tabular-nums text-slate-400">
+              {{ Math.round(backgroundAlpha * 100) }}%
+            </span>
           </div>
         </div>
 
