@@ -5,9 +5,10 @@
  * 断言口径：按钮用 ARIA 名定位；高亮层用 `data-caret-line` 数据属性（不是 class）；
  * 复制要读**真实系统剪贴板**核对内容，并确认文档没被改动。
  */
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import {
   caretTo,
+  editor,
   editorText,
   expectPersistedLines,
   hoverRow,
@@ -20,6 +21,19 @@ import {
 import { e2eLog } from "./e2e-logger";
 
 const LINES = ["第一行", "第二行", "第三行"];
+
+/// 某个颜色的 alpha 分量（`rgb(...)` 没有第 4 位时按 1 算）
+function alphaOf(color: string): number {
+  return Number((color.match(/[\d.]+/g) ?? [])[3] ?? 1);
+}
+
+/// 按钮的三处样式：图标色、底色、那圈 `ring`（Tailwind 的 ring 就是 box-shadow）
+function styleOf(locator: Locator) {
+  return locator.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { color: style.color, background: style.backgroundColor, ring: style.boxShadow };
+  });
+}
 
 /// 当前行高亮层（靠数据属性找，不依赖 class）
 function caretLine(page: Page) {
@@ -53,6 +67,27 @@ test.describe("当前行的行内操作", () => {
     // 指针停在别的行：按钮收起来（它们属于「当前行」，不是指针所在行）
     await hoverRow(page, 0);
     await expect(page.getByRole("button", { name: "删除当前行" })).toHaveCount(0);
+  });
+
+  test("按钮是实底 chip：底不透明、图标与正文同色，hover 只提亮描边", async ({ page }) => {
+    await caretTo(page, 1, 0);
+    await hoverRow(page, 1);
+    const copy = page.getByRole("button", { name: "复制当前行" });
+    await expect(copy).toBeVisible();
+
+    const idle = await styleOf(copy);
+    e2eLog.info("[row-actions]", JSON.stringify(idle));
+    // 底必须**不透明**：曾经是 `--note-fg-veil`（前景色 8%），与它压着的正文糊成一片
+    expect(alphaOf(idle.background)).toBe(1);
+    // 图标用**满色** = 与正文同色，不许再用 `--note-fg-faint`（45%）
+    expect(idle.color).toBe(await editor(page).evaluate((el) => getComputedStyle(el).color));
+
+    // hover：提亮的是**描边**，底与图标都不动 —— "字变深"那种做法又会和正文同源
+    await copy.hover();
+    const hovered = await styleOf(copy);
+    expect(hovered.ring).not.toBe(idle.ring);
+    expect(hovered.color).toBe(idle.color);
+    expect(hovered.background).toBe(idle.background);
   });
 
   test("点「删除当前行」删掉这一行，且能 Ctrl+Z 撤回", async ({ page, app }) => {

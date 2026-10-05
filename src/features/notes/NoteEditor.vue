@@ -662,7 +662,7 @@ function flashDropped(index: number): void {
       >
         <button
           type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-fg-veil)] text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-weak)] hover:text-[var(--note-fg)]"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
           aria-label="复制当前行"
           title="复制当前行"
           @mousedown.prevent
@@ -685,7 +685,7 @@ function flashDropped(index: number): void {
         </button>
         <button
           type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-fg-veil)] text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-weak)] hover:text-rose-500"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-rose-500 hover:ring-[var(--note-fg-faint)]"
           aria-label="删除当前行"
           title="删除当前行 (Ctrl+D)"
           @mousedown.prevent
