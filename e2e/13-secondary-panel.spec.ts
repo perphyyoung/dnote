@@ -68,6 +68,34 @@ async function dragDivider(page: Page, dx: number): Promise<void> {
   await page.mouse.up();
 }
 
+/**
+ * 点一次把手，并在**同一个帧循环里**采样主面板宽度。
+ *
+ * 点击与采样必须在一次 `evaluate` 内：分开写的话采样会落在窗口已经收/放完毕之后，用例就变空转
+ * （看不到那 1~2 帧的中间态）。采样 600ms：`setSize` 是 IPC，落定还要等 `settleWidth`。
+ */
+async function toggleAndSample(page: Page): Promise<number[]> {
+  return page.evaluate(async () => {
+    const button = document.querySelector<HTMLElement>('button[aria-label="次级面板"]');
+    const main = document.querySelector<HTMLElement>('[data-panel-frame="main"]');
+    if (!button || !main) throw new Error("取不到次级面板把手 / 主面板");
+
+    const widths: number[] = [];
+    const until = performance.now() + 600;
+    button.click();
+    while (performance.now() < until) {
+      widths.push(main.getBoundingClientRect().width);
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+    }
+    return widths;
+  });
+}
+
+/// 采样里出现过几个**不同**的宽度（取整到像素）：正常实现必须只有 1 个
+const distinctWidths = (widths: number[]): number[] => [
+  ...new Set(widths.map((value) => Math.round(value))),
+];
+
 test.describe("次级面板", () => {
   test.beforeEach(async ({ app, page }) => {
     // 偏好先清掉（上一条用例可能留下展开偏好与拖出来的次级宽度），`seedLines` 里的 reload 会让它生效
@@ -128,6 +156,28 @@ test.describe("次级面板", () => {
     await expect
       .poll(async () => Math.abs((await viewportWidth(page)) - before))
       .toBeLessThanOrEqual(1);
+  });
+
+  test("切换中主面板宽度恒定：正文不重排（收起不再跳一下）", async ({ app, page }) => {
+    // 长行才看得出重排：折行数由主面板宽度决定，宽度一跳折行就变
+    await seedLines(app, page, [WRAPPING, "第二条"], "main");
+    const folds = async () => (await mirrorBoxes(page, "main")).length;
+    const before = await folds();
+
+    // 展开那一下：主栏从 `flex-1` 变固定宽，宽度必须还是同一个数
+    const openWidths = await toggleAndSample(page);
+    await expect(frame(page)).toBeVisible();
+    e2eLog.info("[secondary] 展开时的主栏宽度采样", JSON.stringify(distinctWidths(openWidths)));
+    expect(distinctWidths(openWidths), "展开时主栏宽度出现了中间值").toHaveLength(1);
+
+    // 收起那一下：用户报的"正文跳一下"就发生在这里（窗口先缩、DOM 后切）
+    const closeWidths = await toggleAndSample(page);
+    await expect(frame(page)).toHaveCount(0);
+    e2eLog.info("[secondary] 收起时的主栏宽度采样", JSON.stringify(distinctWidths(closeWidths)));
+    expect(distinctWidths(closeWidths), "收起时主栏宽度出现了中间值").toHaveLength(1);
+
+    // 两次切换都没动过主栏宽度 —— 折行因此一条都没变（比宽度断言更贴"正文有没有跳"）
+    expect(await folds()).toBe(before);
   });
 
   test("收起后宽度回到打开前那份：反复开关与展开态重载都不累积", async ({ page }) => {

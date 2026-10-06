@@ -552,6 +552,7 @@ function hideToTray() {
       <!-- 滚动与内边距都由 NoteEditor 自己管（手柄要按行对齐，得跟文本同一套度量）。
            `min-w-0`：不加则 textarea 的固有宽度会把这一栏顶开，次级面板就放不下了。 -->
       <div
+        data-panel-frame="main"
         class="relative min-w-0"
         :class="secondaryOpen ? 'shrink-0' : 'flex-1'"
         :style="secondaryOpen ? { width: `${mainPanelWidth || MAIN_MIN_W}px` } : undefined"

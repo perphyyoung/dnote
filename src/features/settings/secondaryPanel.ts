@@ -41,6 +41,8 @@ export const SECONDARY_MIN_W = 200;
 export const MAIN_MIN_W = 260;
 /** 高度下限：与 `tauri.conf.json` 的 `minHeight` 同一个数（`setMinSize` 必须宽高一起给） */
 const MIN_H = 200;
+/** 等视口宽度落定的上限（ms）：`setSize` 返回 ≠ WebView 视口已更新，收起时靠它兜一下 */
+const SETTLE_TIMEOUT_MS = 60;
 
 const OPEN_KEY = "dnote:secondary-panel";
 const WIDTH_KEY = "dnote:secondary-panel-width";
@@ -110,66 +112,105 @@ export async function syncPanelWidthLimits(): Promise<void> {
   }
 }
 
-/**
- * 把窗口宽度调到与 `on` 相称：开关时加减一栏，启动时只兜住「别比一栏还窄」。
- * 失败只记日志：加宽不成功时面板照样能显示（只是两栏会挤），不该因此拦住整个开关。
- */
-async function resizeFor(on: boolean, atStartup: boolean): Promise<void> {
+/** 客户区尺寸（逻辑像素）：两个方向都要先量它，才知道主面板此刻多宽 */
+async function measure(): Promise<{ width: number; height: number }> {
   const win = getCurrentWindow();
   const scale = await win.scaleFactor();
   const inner = (await win.innerSize()).toLogical(scale);
+  return { width: inner.width, height: inner.height };
+}
 
-  let width = inner.width;
-  if (on) {
-    if (atStartup) {
-      // 分界线以**主宽偏好**为准；没记过就拿「窗宽 − 次级宽」起个头
-      const stored = mainPanelWidth.value;
-      const wanted = stored > 0 ? stored : inner.width - secondaryPanelWidth.value;
-      const clamped = clampMainWidth(wanted, inner.width);
-      if (stored > 0) {
-        // 只在内存里夹（窗口可能被壳搞窄过）：夹出来的值不写回偏好，免得把用户拖的位置改掉
-        mainPanelWidth.value = clamped;
-      } else {
-        setMainWidth(clamped);
-      }
-    } else {
-      // 关闭态下主面板吃满窗口 —— 用户在看的这份宽度权威，重新记下来
-      setMainWidth(Math.max(MAIN_MIN_W, Math.round(inner.width)));
-    }
-    const minWidth = mainPanelWidth.value + SECONDARY_MIN_W;
-    // 下限先设：否则紧接着的 setSize 可能被旧下限挡住（系统会按当前下限夹一次）
-    await win.setMinSize(new LogicalSize(minWidth, MIN_H));
-    width = atStartup
-      ? Math.max(inner.width, minWidth) // 启动时只保证放得下，不替用户决定窗口该多宽
-      : mainPanelWidth.value + secondaryPanelWidth.value;
-  } else if (!atStartup) {
-    // 收起：窗口减掉的正是**当时的次级宽**（不是缺省值）—— 主面板因此一个像素都不动
-    const current = Math.max(SECONDARY_MIN_W, Math.round(inner.width - mainPanelWidth.value));
-    setSecondaryWidth(current);
-    await win.setMinSize(new LogicalSize(MAIN_MIN_W, MIN_H));
-    width = Math.max(MAIN_MIN_W, inner.width - current);
+/** 等 WebView 视口真的落到 `target` 宽：只作兜底，超时只记日志（不抛） */
+async function settleWidth(target: number): Promise<void> {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const { width } = await measure();
+    if (Math.round(width) === Math.round(target)) return;
   }
+  log.error(`[secondary] 等待视口宽度落定超时（目标 ${target}）`);
+}
 
-  if (Math.round(width) !== Math.round(inner.width)) {
-    await win.setSize(new LogicalSize(width, inner.height));
+/**
+ * 展开：**先把主宽权威写成实测窗宽，再切布局**。
+ * 关态下主面板就是窗口宽（`flex-1`），所以写完之后主栏从「吃满窗口」变成「固定宽 = 同一个
+ * 数」，正文一个像素都不动；随后窗口加宽，增量全归次级（主栏仍不动）。
+ * 顺序反了（先 `secondaryOpen = true`）主栏会先跳到**上一次的主宽偏好**，再被窗口补一刀。
+ */
+async function openSecondary(): Promise<void> {
+  const win = getCurrentWindow();
+  const { width, height } = await measure();
+  setMainWidth(Math.max(MAIN_MIN_W, Math.round(width)));
+  secondaryOpen.value = true; // ← 布局切换点：到这里主栏宽度仍是刚才那个数
+  const minWidth = mainPanelWidth.value + SECONDARY_MIN_W;
+  // 下限先设：否则紧接着的 `setSize` 可能被旧下限挡住（系统会按当前下限夹一次）
+  await win.setMinSize(new LogicalSize(minWidth, MIN_H));
+  const target = mainPanelWidth.value + secondaryPanelWidth.value;
+  await win.setSize(new LogicalSize(target, height));
+}
+
+/**
+ * 收起：**先缩窗口、等视口落定，再切布局**。
+ * 窗口窄到主宽时主栏仍是固定宽（不变）、次级被挤成 0 宽；此时切布局，主栏 `flex-1` 吃到的
+ * 就是同一个数。顺序反了（先 `secondaryOpen = false`）主栏会先吃掉**旧窗宽**再被窗口补一刀。
+ *
+ * 缩小失败也照样切布局：状态必须与点击一致（只是主栏会空一截、可能跳一下），只记日志。
+ */
+async function closeSecondary(): Promise<void> {
+  const win = getCurrentWindow();
+  const { width, height } = await measure();
+  // 窗口减掉的正是**当时的次级宽**（不是缺省值）—— 主面板因此一个像素都不动
+  const actual = Math.max(SECONDARY_MIN_W, Math.round(width - mainPanelWidth.value));
+  setSecondaryWidth(actual); // 留作"下次展开给多宽"
+  const target = Math.max(MAIN_MIN_W, Math.round(width) - actual);
+  try {
+    await win.setMinSize(new LogicalSize(MAIN_MIN_W, MIN_H));
+    await win.setSize(new LogicalSize(target, height));
+    await settleWidth(target);
+  } catch (e) {
+    log.error("[secondary] 收窄窗口失败", e);
+  } finally {
+    secondaryOpen.value = false;
   }
 }
 
-/** 展开 / 收起次级面板：先翻界面状态再调窗口，面板立刻出现，宽度随后跟上 */
+/** 展开 / 收起次级面板（顺序见 `openSecondary` / `closeSecondary`：反了正文会跳） */
 export async function setSecondaryOpen(on: boolean): Promise<void> {
-  secondaryOpen.value = on;
+  if (on === secondaryOpen.value) return;
   localStorage.setItem(OPEN_KEY, on ? "1" : "0");
   try {
-    await resizeFor(on, false);
+    if (on) await openSecondary();
+    else await closeSecondary();
   } catch (e) {
     log.error("[secondary] 调整窗口宽度失败", e);
   }
 }
 
 /// 启动时按偏好把窗口兜到合适宽度（上一轮的宽度由 window-state 插件恢复）
+async function resizeAtStartup(): Promise<void> {
+  const win = getCurrentWindow();
+  const { width, height } = await measure();
+  if (!secondaryOpen.value) return; // 关态：主面板吃满窗口，窗口宽就是它，什么都不用做
+  // 分界线以**主宽偏好**为准；没记过就拿「窗宽 − 次级宽」起个头
+  const stored = mainPanelWidth.value;
+  const wanted = stored > 0 ? stored : width - secondaryPanelWidth.value;
+  const clamped = clampMainWidth(wanted, width);
+  if (stored > 0) {
+    // 只在内存里夹（窗口可能被壳搞窄过）：夹出来的值不写回偏好，免得把用户拖的位置改掉
+    mainPanelWidth.value = clamped;
+  } else {
+    setMainWidth(clamped);
+  }
+  const minWidth = mainPanelWidth.value + SECONDARY_MIN_W;
+  await win.setMinSize(new LogicalSize(minWidth, MIN_H));
+  const target = Math.max(width, minWidth); // 启动时只保证放得下，不替用户决定窗口该多宽
+  if (Math.round(target) !== Math.round(width)) await win.setSize(new LogicalSize(target, height));
+}
+
+/// 启动入口：按偏好归一窗口宽度（上一轮的宽度由 window-state 插件恢复），失败只记日志
 export async function applySecondaryPanel(): Promise<void> {
   try {
-    await resizeFor(secondaryOpen.value, true);
+    await resizeAtStartup();
   } catch (e) {
     log.error("[secondary] 启动归一窗口宽度失败", e);
   }
