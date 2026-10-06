@@ -88,10 +88,6 @@ onMounted(() => {
   void applySecondaryPanel();
 });
 
-/// 设置面板底部的版本号：构建期由 vite 注入（`define`），单一事实源是 package.json。
-/// 必须先赋给 setup 里的绑定，模板才能引用 —— `<script setup>` 的模板只看得到作用域内的名字。
-const appVersion = __APP_VERSION__;
-
 /// 标题条下方那两个内嵌浮层：设置与帮助**互斥**（同档 `z-30`、共用一层遮罩）。用联合类型而不是
 /// 两个布尔 —— 两个布尔存在"都开着"这个非法态（谁在上面说不清），且三条收起路径都要各管一遍。
 /// 收起入口统一走 `closeOverlay`：点正文区、点标题条、`Esc`、再点自己的入口按钮。
@@ -539,12 +535,6 @@ function hideToTray() {
               :class="autoStart ? 'translate-x-4' : 'translate-x-0'"
             />
           </button>
-        </div>
-
-        <!-- 最底下一行：版本号。不是设置项，但结构与上面几行一致（左标签 + 右信息） -->
-        <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
-          <p class="text-xs text-slate-300">版本号</p>
-          <span class="text-xs text-slate-400">v{{ appVersion }}</span>
         </div>
       </div>
 

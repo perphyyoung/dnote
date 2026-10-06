@@ -432,14 +432,4 @@ test.describe("设置面板", () => {
     await expect(page.getByLabel("笔记行高比")).toHaveValue("1.2");
     expect(await rowHeight(page)).toBe(before);
   });
-
-  test("面板最底下一行显示版本号", async ({ page }) => {
-    await gear(page).click();
-
-    // 断言两件事：版本号是 semver 形态（构建期由 vite 注入，写错会渲染成别的字符串），
-    // 且「版本号」这一行是面板里的最后一行（左标签 + 右信息，与上面几行同构）
-    await expect(panel(page).getByText(/^v\d+\.\d+\.\d+$/)).toBeVisible();
-    const labels = await panel(page).locator("p").allInnerTexts();
-    expect(labels.at(-1)).toBe("版本号");
-  });
 });

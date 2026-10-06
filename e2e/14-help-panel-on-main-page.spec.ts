@@ -1,6 +1,6 @@
 /**
  * 帮助面板：标题条上那颗 `?`（图钉左侧）→ 在标题条**下方内嵌**弹出（不开独立窗口），
- * 内容是两列快捷键表格与「与普通笔记应用的区别」清单。
+ * 内容是**最上方的版本号** + 两列快捷键表格 + 「与普通笔记应用的区别」清单。
  *
  * 四条口径：
  * - 与设置面板**互斥**、共用一层遮罩：不存在"两个都开着"（`overlay` 一个 ref 说了算），
@@ -41,6 +41,17 @@ test.describe("帮助面板", () => {
     await helpButton(page).click();
     await expect(helpPanel(page)).toHaveCount(0);
     await expect(helpButton(page)).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("最上面一行是版本号", async ({ page }) => {
+    await helpButton(page).click();
+    const panel = helpPanel(page);
+
+    // 断言两件事：版本号是 semver 形态（构建期由 vite 注入，写错会渲染成别的字符串），
+    // 且「版本号」这一行是面板里的**第一行**（左标签 + 右信息，与设置面板的其它行同构）
+    await expect(panel.getByText(/^v\d+\.\d+\.\d+$/)).toBeVisible();
+    const labels = await panel.locator("p").allInnerTexts();
+    expect(labels[0]).toBe("版本号");
   });
 
   test("内容：快捷键是两列表格，键位逐条都在、说明列对齐，且一条一行不折行", async ({ page }) => {

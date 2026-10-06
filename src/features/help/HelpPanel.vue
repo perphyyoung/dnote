@@ -11,6 +11,10 @@
  * —— 默认窗宽 360 下面板 `w-80`、内容 294px；写不下就**拆成两条**，不缩字号、也不加宽面板。
  */
 
+/// 版本号：构建期由 vite `define` 注入，单一事实源是 package.json。
+/// 必须先赋给 setup 里的绑定，模板才能引用 —— `<script setup>` 的模板只看得到作用域内的名字。
+const appVersion = __APP_VERSION__;
+
 /// 键位 + 说明。说明列约 196px（≈16 个全角字），超了会折行。
 const SHORTCUTS: ReadonlyArray<{ keys: string; what: string }> = [
   { keys: "Ctrl+D", what: "删除光标所在行" },
@@ -41,6 +45,13 @@ const FEATURES: readonly string[] = [
     aria-label="帮助"
     @pointerdown.stop
   >
+    <!-- 版本号在最上面（原先在设置面板底部）：形态与设置面板的其它行同构（左标签 + 右信息），
+         分隔线因此挂在**它下面**（设置面板那行用的是 `border-t pt-2`，这里是 `border-b pb-2`）。 -->
+    <div class="flex items-center justify-between gap-2 border-b border-slate-700 pb-2">
+      <p class="text-xs text-slate-300">版本号</p>
+      <span class="text-xs text-slate-400">v{{ appVersion }}</span>
+    </div>
+
     <p class="text-xs font-medium text-slate-200">快捷键</p>
     <!-- 两列表格：`w-0` + `whitespace-nowrap` 让键位列只占**最宽那条键位**的宽度，
          说明列因此左缘对齐（用 flex 时每行键位宽窄不同，说明会参差）。
