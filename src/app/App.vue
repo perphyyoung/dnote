@@ -188,10 +188,23 @@ function onDividerUp(): void {
   void syncPanelWidthLimits();
 }
 
-/// `Esc` 收起：这里挂 `document` 而不是元素级 —— 面板里只有滑块可聚焦，点面板空白处后焦点
-/// 不在任何元素上，元素级监听收不到。（编辑器那两个快捷键不同：它们只在编辑器内有意义，
-/// 才必须元素级、不挂 document。）
+/// 切次级面板：点把手与 `Alt+S` 走同一条 —— 面板状态、偏好落盘与窗口宽度都由它包办
+function toggleSecondary(): void {
+  void setSecondaryOpen(!secondaryOpen.value);
+}
+
+/// `Esc` 收设置面板、`Alt+S` 切次级面板：两者都挂 `document` 而不是元素级 —— 它们是**窗口级
+/// 动作**，焦点不在任何元素上时（刚启动、点过标题条）也要响应。（编辑器那两个快捷键不同：
+/// 它们只在编辑器内有意义，才必须元素级、不挂 document。）
 function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyS") {
+    // 组字中是在选字；`repeat` 是按住不放的连发 —— 每次都要发一轮 setMinSize / setSize 的 IPC
+    if (e.isComposing || e.repeat) return;
+    // `!ctrlKey` 还挡掉了 `AltGr+S`（德语等布局下 AltGr 上报的是 ctrl+alt，那是在打字符）
+    e.preventDefault(); // 免得平台把 Alt+字母 当菜单助记键
+    toggleSecondary();
+    return;
+  }
   if (!settingsOpen.value || e.code !== "Escape") return;
   // 颜色搭配的弹层开着时 `Esc` 先归它（`:open` 只在 base-select 生效），别把整个面板也关了
   if (document.querySelector("select.theme-select:open")) return;
@@ -536,8 +549,8 @@ function hideToTray() {
           :class="secondaryOpen ? 'translate-x-1/2' : ''"
           aria-label="次级面板"
           :aria-expanded="secondaryOpen"
-          :title="secondaryOpen ? '收起次级面板' : '展开次级面板（不常改的笔记）'"
-          @click="setSecondaryOpen(!secondaryOpen)"
+          :title="secondaryOpen ? '收起次级面板 (Alt+S)' : '展开次级面板（不常改的笔记） (Alt+S)'"
+          @click="toggleSecondary"
         >
           {{ secondaryOpen ? "‹" : "›" }}
         </button>

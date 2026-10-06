@@ -262,6 +262,20 @@ test.describe("次级面板", () => {
     expect(secondaryAfter).toBeGreaterThanOrEqual(secondaryBefore + 110);
   });
 
+  test("Alt+S 切次级面板：焦点在编辑器里也生效，且把手的 title 带键位", async ({ page }) => {
+    // 焦点先落在 textarea：这条键位挂 `document`（窗口级动作，元素级监听收不到它）
+    await editor(page).click();
+    await page.keyboard.press("Alt+s");
+    await expect(frame(page)).toBeVisible();
+    expect(await page.evaluate((key) => localStorage.getItem(key), PANEL_KEY)).toBe("1");
+    await expect(handle(page)).toHaveAttribute("title", "收起次级面板 (Alt+S)");
+
+    await page.keyboard.press("Alt+s");
+    await expect(frame(page)).toHaveCount(0);
+    expect(await page.evaluate((key) => localStorage.getItem(key), PANEL_KEY)).toBe("0");
+    await expect(handle(page)).toHaveAttribute("title", "展开次级面板（不常改的笔记） (Alt+S)");
+  });
+
   test("把手是个圆，圆心锚在主面板右边界：展开后在分界线上，并跟着分界线走", async ({ page }) => {
     const circle = () => page.getByRole("button", { name: "次级面板" });
     /// 把手的圆心 x（视口坐标）
