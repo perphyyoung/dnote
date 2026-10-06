@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import HelpPanel from "@/features/help/HelpPanel.vue";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
@@ -91,8 +92,17 @@ onMounted(() => {
 /// 必须先赋给 setup 里的绑定，模板才能引用 —— `<script setup>` 的模板只看得到作用域内的名字。
 const appVersion = __APP_VERSION__;
 
-/// 设置面板是否展开。收起入口统一走 `closeSettings`：点正文区、`Esc`、再点齿轮
-const settingsOpen = ref(false);
+/// 标题条下方那两个内嵌浮层：设置与帮助**互斥**（同档 `z-30`、共用一层遮罩）。用联合类型而不是
+/// 两个布尔 —— 两个布尔存在"都开着"这个非法态（谁在上面说不清），且三条收起路径都要各管一遍。
+/// 收起入口统一走 `closeOverlay`：点正文区、点标题条、`Esc`、再点自己的入口按钮。
+const overlay = ref<"settings" | "help" | null>(null);
+const settingsOpen = computed(() => overlay.value === "settings");
+const helpOpen = computed(() => overlay.value === "help");
+
+/// 再点自己的入口即收起；点另一个入口直接换（互斥由这一个 ref 保证）
+function toggleOverlay(which: "settings" | "help"): void {
+  overlay.value = overlay.value === which ? null : which;
+}
 
 /// 点一组推荐：把前景与背景**一起**设好（连着两次 setter，没有第三份状态、也就没有隐藏联动）。
 /// 之后照样能用两个取色器各自微调 —— 那是"自定义"，`currentThemeName` 会自动变成 `null`。
@@ -143,9 +153,10 @@ const noteColorScheme = computed(() =>
     : "dark",
 );
 
-function closeSettings(): void {
-  revertThemePreview(); // 面板一收，先把 hover 预览撤掉，别把没提交的颜色留在界面上
-  settingsOpen.value = false;
+/// 收起浮层只有这一条路：hover 预览是设置面板自己的副作用，别的入口不许各写一遍
+function closeOverlay(): void {
+  if (overlay.value === "settings") revertThemePreview(); // 别把没提交的颜色留在界面上
+  overlay.value = null;
 }
 
 /// ── 次级面板：分界线拖动与那一栏的实际宽度 ────────────────────────────────────
@@ -205,25 +216,31 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     toggleSecondary();
     return;
   }
-  if (!settingsOpen.value || e.code !== "Escape") return;
+  if (overlay.value === null || e.code !== "Escape") return;
   // 颜色搭配的弹层开着时 `Esc` 先归它（`:open` 只在 base-select 生效），别把整个面板也关了
   if (document.querySelector("select.theme-select:open")) return;
-  closeSettings();
+  closeOverlay();
 }
 
-/// 点**标题条**也收起设置面板（用户口径：面板外任何地方）。指针按下即收，与遮罩同一手感。
-/// **齿轮除外**：它是开关本身，让它自己 toggle —— 这里先收、它再翻，面板就"关不掉了"。
+/// 点**标题条**也收起浮层（用户口径：浮层外任何地方）。指针按下即收，与遮罩同一手感。
+/// **两个入口按钮（`?` 与齿轮）除外**：它们是开关本身，让它们自己 toggle ——
+/// 这里先收、它再翻，浮层就"关不掉了"。
 function onHeaderDown(e: PointerEvent): void {
-  if (!settingsOpen.value) return;
-  if (e.target instanceof HTMLElement && e.target.closest('button[aria-label="设置"]')) return;
-  closeSettings();
+  if (overlay.value === null) return;
+  if (
+    e.target instanceof HTMLElement &&
+    e.target.closest('button[aria-label="设置"], button[aria-label="帮助"]')
+  ) {
+    return;
+  }
+  closeOverlay();
 }
 
 onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
 onUnmounted(() => document.removeEventListener("keydown", onGlobalKeydown));
 
 function hideToTray() {
-  closeSettings(); // 顺手收起面板：收进托盘时不该留一个"展开着"的界面状态
+  closeOverlay(); // 顺手收起浮层：收进托盘时不该留一个"展开着"的界面状态
   // 无边框窗口没有系统按钮，隐藏到托盘（core:window:allow-hide）
   void getCurrentWindow().hide();
 }
@@ -260,6 +277,25 @@ function hideToTray() {
         dnote
       </span>
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
+      <!-- 帮助：与设置同为标题条下方内嵌浮层（同一层遮罩，两者互斥）。位置在图钉左侧，
+           浮层则贴窗口右缘 —— 与设置面板同一条口径（见 design.md「帮助面板」）。
+           半角 `?`：与齿轮一样是文字字形，不引图标资产。无快捷键，所以 `title` 不带 `(快捷键)`。 -->
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded transition"
+        :class="
+          helpOpen
+            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
+            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
+        "
+        title="帮助"
+        aria-label="帮助"
+        aria-haspopup="dialog"
+        :aria-expanded="helpOpen"
+        @click="toggleOverlay('help')"
+      >
+        ?
+      </button>
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded transition"
@@ -304,7 +340,7 @@ function hideToTray() {
         aria-label="设置"
         aria-haspopup="dialog"
         :aria-expanded="settingsOpen"
-        @click="settingsOpen = !settingsOpen"
+        @click="toggleOverlay('settings')"
       >
         ⚙
       </button>
@@ -318,18 +354,16 @@ function hideToTray() {
       </button>
     </header>
 
-    <!-- 设置面板：在标题条**下方内嵌**弹出（不开独立窗口）。遮罩只盖标题栏以下 ——
-         于是面板开着时置顶与 `-` 照常可点，不必"先关面板再点"。 -->
+    <!-- 设置面板与帮助面板：都在标题条**下方内嵌**弹出（不开独立窗口），内层卡片各写各的。
+         遮罩只盖标题栏以下 —— 于是浮层开着时置顶与 `-` 照常可点，不必"先关浮层再点"。 -->
     <!-- 遮罩：**整窗**标题条以下（层级与定位都见 `design.md`「叠层」）。点它任意处收起；
-         点**标题条**（遮罩之外）由 `header` 的 `onHeaderDown` 管 —— 齿轮除外（它自己 toggle）。
-         面板因此永远是窗口级浮层：贴窗口右缘 = **齿轮正下方**，与次级面板开不开无关
-         （曾经把它摁在主面板里，展开次级面板后就和齿轮错位了）。 -->
-    <div
-      v-if="settingsOpen"
-      class="absolute inset-x-0 top-8 bottom-0 z-30"
-      @pointerdown="closeSettings"
-    >
+         点**标题条**（遮罩之外）由 `header` 的 `onHeaderDown` 管 —— 两个入口按钮（`?` / 齿轮）
+         除外（它们自己 toggle）。**两个浮层共用这一层遮罩**，互斥由 `overlay` 这一个 ref 保证，
+         所以不存在"谁在上面"的问题。卡片因此永远是窗口级浮层：贴窗口右缘 = 各自入口按钮
+         正下方，与次级面板开不开无关（曾经把设置面板摁在主面板里，展开次级面板后就和齿轮错位了）。 -->
+    <div v-if="overlay" class="absolute inset-x-0 top-8 bottom-0 z-30" @pointerdown="closeOverlay">
       <div
+        v-if="settingsOpen"
         class="absolute right-2 top-1 w-56 space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-3 shadow-xl"
         role="dialog"
         aria-label="设置"
@@ -513,6 +547,9 @@ function hideToTray() {
           <span class="text-xs text-slate-400">v{{ appVersion }}</span>
         </div>
       </div>
+
+      <!-- 帮助面板：静态内容自成一档（`features/help/HelpPanel.vue`），这里只按 `overlay` 二选一 -->
+      <HelpPanel v-else />
     </div>
 
     <!-- 两块面板：同一窗口里左右并排（**不是**第二个窗口 —— 见 secondaryPanel.ts）。
