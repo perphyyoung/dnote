@@ -389,14 +389,18 @@ function onInput(e: Event): void {
  */
 function onKeydown(e: KeyboardEvent): void {
   if (e.isComposing) return;
-  if ((e.ctrlKey || e.metaKey) && e.code === "KeyD") {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
     e.preventDefault();
     deleteCurrentLine();
     return;
   }
   // 重做：轮到我们那一笔时自己重放（浏览器的重做对「长多行的整篇替换」会丢内容，见 `structural`）。
   // Chromium 里 Ctrl+Y 与 Ctrl+Shift+Z 都是重做键位，两个都得拦；没轮到我们时一律放行给浏览器。
-  if ((e.ctrlKey || e.metaKey) && (e.code === "KeyY" || (e.shiftKey && e.code === "KeyZ"))) {
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    (e.code === "KeyY" || (e.shiftKey && e.code === "KeyZ"))
+  ) {
     if (structural?.state === "undone" && structural.depth === 0) {
       e.preventDefault();
       const { after, caretAfter, caretBefore } = structural;
@@ -405,7 +409,13 @@ function onKeydown(e: KeyboardEvent): void {
     }
     return;
   }
-  if (e.altKey && (e.code === "ArrowUp" || e.code === "ArrowDown")) {
+  if (
+    e.altKey &&
+    !e.ctrlKey &&
+    !e.metaKey &&
+    !e.shiftKey &&
+    (e.code === "ArrowUp" || e.code === "ArrowDown")
+  ) {
     // 已经在头 / 尾也要拦下来：免得平台把 Alt+↑↓ 当作窗口级操作
     e.preventDefault();
     moveCurrentLine(e.code === "ArrowUp" ? -1 : 1);

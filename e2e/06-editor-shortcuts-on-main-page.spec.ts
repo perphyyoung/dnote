@@ -81,6 +81,27 @@ test.describe("编辑器快捷键", () => {
     expect(await editorText(page)).toBe(LINES.join("\n"));
   });
 
+  test("多了修饰符不命中：Ctrl+Alt+D / Ctrl+Shift+D 不删行，Ctrl+Alt+↓ 不移行", async ({
+    page,
+    app,
+  }) => {
+    // 键位是 `Ctrl+D` 与 `Alt+↑/↓` —— 多按任何修饰符都不该命中（严格修饰符，见 design.md 快捷键节）。
+    // 那个 `!e.altKey` 同时挡住 `AltGr+D`：Windows 下 AltGr 上报 ctrl+alt，德语等布局里那是在打字符。
+    await caretTo(page, 1, 2);
+    for (const key of ["Control+Alt+d", "Control+Shift+d"]) {
+      await page.keyboard.press(key);
+      expect(await editorText(page), `${key} 不该删行`).toBe(LINES.join("\n"));
+    }
+
+    await caretTo(page, 0, 1);
+    await page.keyboard.press("Alt+Control+ArrowDown");
+    expect(await editorText(page)).toBe(LINES.join("\n"));
+
+    // 文本没动过，磁盘也不该动（等过防抖落盘的那一段再看）
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    await expectPersistedLines(app.dataDir, LINES);
+  });
+
   test("Ctrl+Z 撤销删行，既恢复文本也不把整篇选中", async ({ page, app }) => {
     await caretTo(page, 1, 2); // 编辑前光标在第 2 行第 2 列
     await page.keyboard.press("Control+d");
