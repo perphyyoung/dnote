@@ -11,6 +11,7 @@ import {
   moveIndexAfter,
   moveItem,
   moveLines,
+  menuPosition,
   selectionLines,
 } from "@/features/notes/logic";
 
@@ -333,5 +334,37 @@ describe("moveLines", () => {
 
   it("空列表安全", () => {
     expect(moveLines([], 0, 0, 1)).toBeNull();
+  });
+});
+
+describe("menuPosition", () => {
+  // 视口 800×600，菜单 120×80
+  const W = 800;
+  const H = 600;
+  const MW = 120;
+  const MH = 80;
+
+  it("装得下就贴指针", () => {
+    expect(menuPosition(100, 100, MW, MH, W, H)).toEqual({ x: 100, y: 100 });
+  });
+
+  it("右边装不下就朝指针那一侧翻转（无边框窗口溢出即看不见）", () => {
+    expect(menuPosition(750, 100, MW, MH, W, H)).toEqual({ x: 630, y: 100 });
+  });
+
+  it("下边装不下同样翻转", () => {
+    expect(menuPosition(100, 560, MW, MH, W, H)).toEqual({ x: 100, y: 480 });
+  });
+
+  it("右下角两个方向一起翻", () => {
+    expect(menuPosition(790, 590, MW, MH, W, H)).toEqual({ x: 670, y: 510 });
+  });
+
+  it("正好贴着边界时不翻", () => {
+    expect(menuPosition(W - MW, H - MH, MW, MH, W, H)).toEqual({ x: W - MW, y: H - MH });
+  });
+
+  it("菜单比视口还大时钳到 0（别整块跑到窗口外）", () => {
+    expect(menuPosition(10, 10, 900, 700, W, H)).toEqual({ x: 0, y: 0 });
   });
 });

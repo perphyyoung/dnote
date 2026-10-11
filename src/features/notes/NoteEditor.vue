@@ -14,6 +14,7 @@ import {
   moveLines,
   selectionLines,
 } from "@/features/notes/logic";
+import ContextMenu from "@/features/notes/ContextMenu.vue";
 import type { Panel } from "@/features/notes/useNotes";
 import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
@@ -187,6 +188,7 @@ function syncCaretLine(): void {
 /** 失焦：既落盘，也要收掉「当前行」高亮（blur 不会触发 selectionchange，得自己叫一次） */
 function onBlur(): void {
   syncCaretLine();
+  closeContextMenu(); // 焦点走了，右键菜单也该走
   flushNow();
 }
 
@@ -198,12 +200,14 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(measure);
   if (scroller.value) resizeObserver.observe(scroller.value);
   document.addEventListener("selectionchange", syncCaretLine);
+  document.addEventListener("pointerdown", onDocumentPointerDown); // 右键菜单：点任何地方都收
 });
 
 onUnmounted(() => {
   resizeObserver?.disconnect();
   resizeObserver = null;
   document.removeEventListener("selectionchange", syncCaretLine);
+  document.removeEventListener("pointerdown", onDocumentPointerDown);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
   document.body.classList.remove("dragging");
@@ -361,6 +365,7 @@ let structural: {
 
 /** 所有输入（含原生撤销 / 重做）都从这里进：更新内容，顺带修正撤销带出来的选区 */
 function onInput(e: Event): void {
+  closeContextMenu(); // 内容变了：菜单作用于旧选区，留着只会点错
   const el = e.target as HTMLTextAreaElement;
   const inputType = (e as InputEvent).inputType;
   if (inputType === "historyUndo" || inputType === "historyRedo") {
@@ -395,6 +400,12 @@ function onInput(e: Event): void {
  */
 function onKeydown(e: KeyboardEvent): void {
   if (e.isComposing) return;
+  if (e.code === "Escape" && contextMenu.value !== null) {
+    // 菜单开着时 `Esc` 先归它（设置 / 帮助浮层的遮罩盖住整个编辑器，两者不会同时在）
+    e.preventDefault();
+    closeContextMenu();
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
     e.preventDefault();
     deleteCurrentLine();
@@ -432,54 +443,116 @@ function onKeydown(e: KeyboardEvent): void {
 function deleteCurrentLine(): void {
   const el = editor.value;
   if (!el) return;
-  const text = el.value;
-  const range = selectionLines(text, el.selectionStart, el.selectionEnd);
+  const range = selectionLines(el.value, el.selectionStart, el.selectionEnd);
   if (range === null) {
-    deleteLineAt(caretLine(text, el.selectionStart).index);
+    const index = caretLine(el.value, el.selectionStart).index;
+    deleteLinesAt(index, index);
     return;
   }
-  const from = el.selectionStart;
-  const { start, end, caret } = deleteLines(text, range.first, range.last);
-  if (start === end) return; // 空文档：没有可删的
-  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from);
-  log.info(`[notes] 删除第 ${range.first + 1}–${range.last + 1} 行`);
+  deleteLinesAt(range.first, range.last);
 }
 
 /**
- * 删掉第 index 行（**行内「删除当前行」按钮**走它）。它**不跟随选区** —— 按钮属于指针所在的
- * 那一行（见 `design.md` 行内操作），而 `Ctrl+D` 会看选区。
+ * 删掉 `[first, last]` 这一段逻辑行：**快捷键 `Ctrl+D`、右键菜单、行内「删除当前行」按钮
+ * 三条入口共用**（都走 `applyEdit`，因此都能 `Ctrl+Z` 撤回、都不做二次确认）。
+ * 单行是它的退化 —— 走 `deleteLine`（同一份规则的薄封装）。
  */
-function deleteLineAt(index: number): void {
+function deleteLinesAt(first: number, last: number): void {
   const el = editor.value;
   if (!el) return;
   const text = el.value;
   const from = el.selectionStart;
-  const { start, end, caret } = deleteLine(text, index);
+  const { start, end, caret } =
+    first === last ? deleteLine(text, first) : deleteLines(text, first, last);
   if (start === end) return; // 空文档：没有可删的
   applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from);
-  log.info(`[notes] 删除第 ${index + 1} 行`);
+  log.info(
+    first === last
+      ? `[notes] 删除第 ${first + 1} 行`
+      : `[notes] 删除第 ${first + 1}–${last + 1} 行`,
+  );
+}
+
+/** 行内「删除当前行」按钮走它：只删那一行（按钮属于那一行、**不跟随选区**，见 `design.md` 行内操作） */
+function deleteLineAt(index: number): void {
+  deleteLinesAt(index, index);
 }
 
 /**
- * 复制第 index 行的文本到剪贴板（**不改文档**）。
- * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中该行 + execCommand("copy")」
+ * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：行内按钮与右键菜单共用
+ * （快捷键不管复制 —— 那是浏览器原生的 `Ctrl+C`，见 `design.md` 选择与复制）。
+ * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中这几行 + execCommand("copy")」
  * 并把原选区还回去 —— 两条路都留着，避免环境差异变成静默失败。
  */
-async function copyLineAt(index: number): Promise<void> {
+async function copyLines(first: number, last: number): Promise<void> {
   const el = editor.value;
-  const text = lines.value[index];
-  if (!el || text === undefined) return;
+  if (!el || first < 0 || last >= lines.value.length) return;
+  const text = lines.value.slice(first, last + 1).join("\n");
   try {
     await navigator.clipboard.writeText(text);
   } catch (e) {
-    const { start, end } = lineRange(el.value, index);
+    const start = lineRange(el.value, first).start;
+    const end = lineRange(el.value, last).end;
     const restore = el.selectionStart;
     el.setSelectionRange(start, end);
     document.execCommand("copy");
     el.setSelectionRange(restore, restore);
     log.warn(`[notes] 剪贴板 API 不可用，已回落 execCommand：${String(e)}`);
   }
-  log.info(`[notes] 已复制当前行（第 ${index + 1} 行）`);
+  log.info(
+    first === last
+      ? `[notes] 已复制第 ${first + 1} 行`
+      : `[notes] 已复制第 ${first + 1}–${last + 1} 行`,
+  );
+}
+
+// ── 右键菜单：复制 / 删除（多行时作用于整个选区）────────────────────────────────
+// 命中规则**不自己算几何**：Chromium 右键点在选区外时原生就把插入符挪到点击处、点在选区内则
+// 保留选区 —— 所以「读一次 selectionStart/End」就等价于「选区内 → 整个选区 / 选区外 → 那一行」。
+
+const contextMenu = ref<{ x: number; y: number; first: number; last: number } | null>(null);
+
+/// 菜单项：无选区是「当前行」、有选区是「N 行」；两项都复用上面的删除 / 复制实现
+const menuItems = computed(() => {
+  const menu = contextMenu.value;
+  if (menu === null) return [];
+  const scope = menu.last > menu.first ? ` ${menu.last - menu.first + 1} 行` : "当前行";
+  return [
+    {
+      label: `复制${scope}`,
+      onPick: () => {
+        void copyLines(menu.first, menu.last);
+        closeContextMenu();
+      },
+    },
+    {
+      label: `删除${scope}`,
+      danger: true,
+      onPick: () => {
+        deleteLinesAt(menu.first, menu.last);
+        closeContextMenu();
+      },
+    },
+  ];
+});
+
+function closeContextMenu(): void {
+  contextMenu.value = null;
+}
+
+/// 右键：摆到指针处（越界由 `ContextMenu` 自己夹），范围按**此刻**的选区算
+function onContextMenu(e: MouseEvent): void {
+  const el = editor.value;
+  if (!el) return;
+  e.preventDefault();
+  const range = selectionLines(el.value, el.selectionStart, el.selectionEnd);
+  const first = range?.first ?? caretLine(el.value, el.selectionStart).index;
+  contextMenu.value = { x: e.clientX, y: e.clientY, first, last: range?.last ?? first };
+}
+
+/// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）
+function onDocumentPointerDown(): void {
+  closeContextMenu();
 }
 
 /**
@@ -611,6 +684,7 @@ function flashDropped(index: number): void {
     @pointerdown="onScrollerDown"
     @pointermove="onHover"
     @pointerleave="hoverIndex = null"
+    @scroll="closeContextMenu"
   >
     <!-- 背景装饰层：必须在 textarea **之下** —— 当前行高亮是「给这一行铺底色」，
          而不是「给文字蒙一层灰」。画在文字之上的半透明色块会把文字一起压暗，
@@ -726,7 +800,7 @@ function flashDropped(index: number): void {
           aria-label="复制当前行"
           title="复制当前行"
           @mousedown.prevent
-          @click="copyLineAt(currentLine)"
+          @click="copyLines(currentLine, currentLine)"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -818,6 +892,7 @@ function flashDropped(index: number): void {
       @keydown="onKeydown"
       @focus="syncCaretLine"
       @blur="onBlur"
+      @contextmenu="onContextMenu"
     />
 
     <!-- 镜像测层：textarea 的 value 不在 DOM 里、问不出它的逐行排版，所以在这里放一个**同框同字体**
@@ -875,4 +950,8 @@ function flashDropped(index: number): void {
       {{ lines[drag.originIndex] ?? "" }}
     </span>
   </div>
+
+  <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），
+       菜单项与动作全由这里组装 —— 只有这里知道选区覆盖哪几行。 -->
+  <ContextMenu v-if="contextMenu" :x="contextMenu.x" :y="contextMenu.y" :items="menuItems" />
 </template>

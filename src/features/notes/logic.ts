@@ -157,6 +157,25 @@ export function deleteLine(
 }
 
 /**
+ * 右键菜单该摆在哪：默认贴指针（`x` / `y` 是 client 坐标），**右 / 下越界时朝指针那一侧翻转**。
+ * 窗口是无边框的，越界出来的部分就是看不见（不像系统菜单会自己躲）。
+ * 菜单比视口还大时钳到 0（至少让它从左上角开始，别整块跑到外面）。
+ */
+export function menuPosition(
+  x: number,
+  y: number,
+  menuW: number,
+  menuH: number,
+  viewW: number,
+  viewH: number,
+): { x: number; y: number } {
+  return {
+    x: Math.max(0, x + menuW <= viewW ? x : x - menuW),
+    y: Math.max(0, y + menuH <= viewH ? y : y - menuH),
+  };
+}
+
+/**
  * 把 `[first, last]` 这一段**整体**上移（`delta < 0`）或下移（`delta > 0`）一行：与块外相邻
  * 的那一行交换。块已顶到首行还要上移 / 底到末行还要下移 → `null`（调用方据此什么都不做）。
  * 不修改入参。单行的 `Alt+↑/↓` 走 `moveItem`，多行走这里。
