@@ -4,11 +4,14 @@ import {
   caretLine,
   caretOffset,
   deleteLine,
+  deleteLines,
   insertIndexAt,
   lineIndexAt,
   lineRange,
   moveIndexAfter,
   moveItem,
+  moveLines,
+  selectionLines,
 } from "@/features/notes/logic";
 
 describe("moveItem", () => {
@@ -236,5 +239,99 @@ describe("deleteLine", () => {
 
   it("空文本：没有可删的区间", () => {
     expect(deleteLine("", 0)).toEqual({ start: 0, end: 0, caret: 0 });
+  });
+});
+
+describe("selectionLines", () => {
+  it("没有选区（只有光标）时返回 null —— 调用方走单行分支", () => {
+    expect(selectionLines(TEXT, 5, 5)).toBeNull();
+    expect(selectionLines(TEXT, 0, 0)).toBeNull();
+  });
+
+  it("反向选区与正向选区给出同一个行范围", () => {
+    expect(selectionLines(TEXT, 4, 11)).toEqual({ first: 1, last: 2 });
+    expect(selectionLines(TEXT, 11, 4)).toEqual({ first: 1, last: 2 });
+  });
+
+  it("终点落在行首时那一行不算（浏览器选区是 [from, to)）", () => {
+    expect(selectionLines(TEXT, 4, 8)).toEqual({ first: 1, last: 1 });
+    expect(selectionLines(TEXT, 0, 4)).toEqual({ first: 0, last: 0 });
+  });
+
+  it("行内部分选区按整行算", () => {
+    expect(selectionLines(TEXT, 5, 6)).toEqual({ first: 1, last: 1 }); // 都在第二行里
+    expect(selectionLines(TEXT, 5, 9)).toEqual({ first: 1, last: 2 }); // 9 落在第三行行中
+    expect(selectionLines(TEXT, 0, 11)).toEqual({ first: 0, last: 2 }); // 全选
+  });
+});
+
+// 四行：验证「块后面还有行」与「块含末行」这两条分支不是同一回事
+const TEXT4 = "第一行\n第二行\n第三行\n第四行";
+
+describe("deleteLines", () => {
+  it("块后面还有行：吃块尾那个换行，光标落到块首位置", () => {
+    const { start, end, caret } = deleteLines(TEXT4, 1, 2);
+    expect([start, end, caret]).toEqual([4, 12, 4]);
+    expect(TEXT4.slice(0, start) + TEXT4.slice(end)).toBe("第一行\n第四行");
+  });
+
+  it("块含末行：末行没有行尾换行，改吃块首那个，光标收到上一行行尾", () => {
+    const { start, end, caret } = deleteLines(TEXT, 1, 2);
+    expect([start, end, caret]).toEqual([3, 11, 3]);
+    expect(TEXT.slice(0, start) + TEXT.slice(end)).toBe("第一行");
+  });
+
+  it("删首两行：光标落到新的首行行首", () => {
+    const { start, end, caret } = deleteLines(TEXT, 0, 1);
+    expect([start, end, caret]).toEqual([0, 8, 0]);
+    expect(TEXT.slice(0, start) + TEXT.slice(end)).toBe("第三行");
+  });
+
+  it("整篇都在块里：退化为清空", () => {
+    expect(deleteLines(TEXT, 0, 2)).toEqual({ start: 0, end: 11, caret: 0 });
+  });
+
+  it("首尾反着给也认（选区可能是反向拖出来的）", () => {
+    expect(deleteLines(TEXT, 2, 1)).toEqual(deleteLines(TEXT, 1, 2));
+  });
+
+  it("单行是它的退化：与 deleteLine 完全一致", () => {
+    for (const index of [0, 1, 2]) {
+      expect(deleteLines(TEXT, index, index)).toEqual(deleteLine(TEXT, index));
+    }
+  });
+});
+
+describe("moveLines", () => {
+  const LIST = ["A", "B", "C", "D"];
+
+  it("整块上移一行：与块前那一行交换", () => {
+    expect(moveLines(LIST, 1, 2, -1)).toEqual(["B", "C", "A", "D"]);
+  });
+
+  it("整块下移一行：与块后那一行交换", () => {
+    expect(moveLines(LIST, 1, 2, 1)).toEqual(["A", "D", "B", "C"]);
+  });
+
+  it("单行等价于 moveItem", () => {
+    expect(moveLines(LIST, 0, 0, 1)).toEqual(moveItem(LIST, 0, 1));
+    expect(moveLines(LIST, 3, 3, -1)).toEqual(moveItem(LIST, 3, 2));
+  });
+
+  it("块顶到首行还上移 / 底到末行还下移 → null（调用方据此不动）", () => {
+    expect(moveLines(LIST, 0, 1, -1)).toBeNull();
+    expect(moveLines(LIST, 2, 3, 1)).toBeNull();
+    expect(moveLines(LIST, 0, 3, -1)).toBeNull(); // 整篇一块：两个方向都动不了
+  });
+
+  it("块内顺序不变，且不修改入参", () => {
+    const source = ["A", "B", "C", "D"];
+    const moved = moveLines(source, 1, 2, -1);
+    expect(source).toEqual(["A", "B", "C", "D"]);
+    expect(moved?.slice(0, 2)).toEqual(["B", "C"]);
+  });
+
+  it("空列表安全", () => {
+    expect(moveLines([], 0, 0, 1)).toBeNull();
   });
 });

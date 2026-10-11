@@ -5,11 +5,14 @@ import {
   caretLine,
   caretOffset,
   deleteLine,
+  deleteLines,
   insertIndexAt,
   lineIndexAt,
   lineRange,
   moveIndexAfter,
   moveItem,
+  moveLines,
+  selectionLines,
 } from "@/features/notes/logic";
 import type { Panel } from "@/features/notes/useNotes";
 import { useNotes } from "@/features/notes/useNotes";
@@ -295,7 +298,8 @@ function onHandleUp(): void {
   const anchored = moveIndexAfter(d.originIndex, to, caret.index);
   // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
   // 于是**拖拽也能 Ctrl+Z 撤回**，光标也由它一次设到位。
-  applyEdit(text, caretOffset(text, anchored, caret.column), from);
+  const caretAfter = caretOffset(text, anchored, caret.column);
+  applyEdit(text, { start: caretAfter, end: caretAfter }, from);
   flashDropped(to);
 }
 
@@ -347,8 +351,10 @@ let preEditCaret: number | null = null;
  */
 let structural: {
   after: string;
-  caretBefore: number;
-  caretAfter: number;
+  /// 编辑前的落点：撤销后把选区收成它的 `start`（`onInput` 里那一步）
+  targetBefore: { start: number; end: number };
+  /// 编辑后的落点：重做时**原样**恢复 —— 多行快捷键的选区因此能跟着块平移（见 `moveCurrentLine`）
+  targetAfter: { start: number; end: number };
   state: "applied" | "undone";
   depth: number;
 } | null = null;
@@ -403,8 +409,8 @@ function onKeydown(e: KeyboardEvent): void {
   ) {
     if (structural?.state === "undone" && structural.depth === 0) {
       e.preventDefault();
-      const { after, caretAfter, caretBefore } = structural;
-      applyEdit(after, caretAfter, caretBefore);
+      const { after, targetAfter, targetBefore } = structural;
+      applyEdit(after, targetAfter, targetBefore.start);
       log.info("[notes] 重做结构性编辑（自接管，绕开 Chromium 重做的缺陷）");
     }
     return;
@@ -422,14 +428,27 @@ function onKeydown(e: KeyboardEvent): void {
   }
 }
 
-/** Ctrl+D：删掉当前行 */
+/** Ctrl+D：删掉光标所在行；**选中多行时删掉整个选区**（只读一次原生选区，不引入"行选区"） */
 function deleteCurrentLine(): void {
   const el = editor.value;
   if (!el) return;
-  deleteLineAt(caretLine(el.value, el.selectionStart).index);
+  const text = el.value;
+  const range = selectionLines(text, el.selectionStart, el.selectionEnd);
+  if (range === null) {
+    deleteLineAt(caretLine(text, el.selectionStart).index);
+    return;
+  }
+  const from = el.selectionStart;
+  const { start, end, caret } = deleteLines(text, range.first, range.last);
+  if (start === end) return; // 空文档：没有可删的
+  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from);
+  log.info(`[notes] 删除第 ${range.first + 1}–${range.last + 1} 行`);
 }
 
-/** 删掉第 index 行（Ctrl+D 与「删除当前行」按钮共用）：走 applyEdit，因此能 Ctrl+Z 撤销 */
+/**
+ * 删掉第 index 行（**行内「删除当前行」按钮**走它）。它**不跟随选区** —— 按钮属于指针所在的
+ * 那一行（见 `design.md` 行内操作），而 `Ctrl+D` 会看选区。
+ */
 function deleteLineAt(index: number): void {
   const el = editor.value;
   if (!el) return;
@@ -437,7 +456,7 @@ function deleteLineAt(index: number): void {
   const from = el.selectionStart;
   const { start, end, caret } = deleteLine(text, index);
   if (start === end) return; // 空文档：没有可删的
-  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, caret, from);
+  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from);
   log.info(`[notes] 删除第 ${index + 1} 行`);
 }
 
@@ -463,18 +482,39 @@ async function copyLineAt(index: number): Promise<void> {
   log.info(`[notes] 已复制当前行（第 ${index + 1} 行）`);
 }
 
-/** Alt+↑/↓：与相邻行交换，光标跟着这一行走、列保持不变；已在头 / 尾则不动 */
+/**
+ * Alt+↑/↓：与相邻行交换，光标跟着这一行走、列保持不变；已在头 / 尾则不动。
+ * **选中多行时整块移动一行**，并把选区一起平移 —— 否则连按第二次就只剩一行可动（见 `design.md`）。
+ */
 function moveCurrentLine(delta: number): void {
   const el = editor.value;
   if (!el) return;
   const text = el.value;
   const from = el.selectionStart;
-  const { index, column } = caretLine(text, from);
   const lines = text.split("\n");
+
+  const range = selectionLines(text, el.selectionStart, el.selectionEnd);
+  if (range !== null) {
+    const moved = moveLines(lines, range.first, range.last, delta);
+    if (moved === null) return; // 块已顶到首行 / 底到末行
+    // 块整体平移一行 = 选区按「相邻那一行 + 它的换行」平移（换行跟着那一行一起被搬走）
+    const neighbour =
+      delta < 0 ? lines[range.first - 1].length + 1 : lines[range.last + 1].length + 1;
+    const shift = delta < 0 ? -neighbour : neighbour;
+    const next = moved.join("\n");
+    applyEdit(next, { start: el.selectionStart + shift, end: el.selectionEnd + shift }, from);
+    log.info(
+      `[notes] 第 ${range.first + 1}–${range.last + 1} 行整块移到第 ${range.first + 1 + delta} 行`,
+    );
+    return;
+  }
+
+  const { index, column } = caretLine(text, from);
   const target = index + delta;
   if (target < 0 || target >= lines.length) return;
   const next = moveItem(lines, index, target).join("\n");
-  applyEdit(next, caretOffset(next, target, column), from);
+  const caret = caretOffset(next, target, column);
+  applyEdit(next, { start: caret, end: caret }, from);
   log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);
 }
 
@@ -487,10 +527,11 @@ function moveCurrentLine(delta: number): void {
  * 而且会把插入符甩到文末（取舍见 `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用
  * （返回 false）就回落为直接写。
  *
- * `caret` 是编辑后光标该在哪；`from` 是编辑前光标的位置 —— 撤销会连「编辑前的选区」一起恢复
+ * `target` 是编辑后该落的**选区**（`start === end` 就是光标；多行整块移动时这里是一整块，见
+ * `moveCurrentLine`）；`from` 是编辑前光标的位置 —— 撤销会连「编辑前的选区」一起恢复
  * （而我们是全选后替换，于是撤销后整篇被选中），届时用它把光标放回原处并取消选区（见 `onInput`）。
  */
-function applyEdit(text: string, caret: number, from: number): void {
+function applyEdit(text: string, target: { start: number; end: number }, from: number): void {
   const el = editor.value;
   if (!el) return;
   // 键盘路径本来就在焦点里；鼠标拖拽可能没有（用户可能一直没点进编辑器），而 execCommand
@@ -501,11 +542,17 @@ function applyEdit(text: string, caret: number, from: number): void {
     el.value = text; // 先落到 DOM，保证下面设置光标时作用在新文本上
     setContent(text);
   }
-  el.setSelectionRange(caret, caret);
+  el.setSelectionRange(target.start, target.end);
   preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
   // 记下这一笔「编辑后」的样子：用户撤销后再重做时，就按它重放一次（缘由见 `structural` 的注释）。
   // 也必须放在 execCommand 之后 —— 那一步会同步触发 input，先写会被 onInput 清掉。
-  structural = { after: text, caretBefore: from, caretAfter: caret, state: "applied", depth: 0 };
+  structural = {
+    after: text,
+    targetBefore: { start: from, end: from },
+    targetAfter: target,
+    state: "applied",
+    depth: 0,
+  };
   syncCaretLine(); // 程序化改光标不一定触发 selectionchange，这里补一次，当前行立刻跟上
   flushNow();
 }

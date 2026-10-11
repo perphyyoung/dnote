@@ -125,4 +125,77 @@ test.describe("编辑器快捷键", () => {
     const { start, end } = await selection(page);
     expect(end - start).toBe(0);
   });
+
+  test("选中两行时 Ctrl+D 删掉整个选区，光标落到块首位置", async ({ page, app }) => {
+    await seedLines(app, page, [...LINES, "第四行"]);
+    await caretTo(page, 1, 0);
+    await page.keyboard.press("Shift+ArrowDown"); // 到第三行行首
+    await page.keyboard.press("Shift+End"); // 选中第二、三行
+
+    await page.keyboard.press("Control+d");
+    expect(await editorText(page)).toBe("第一行\n第四行");
+    expect(await caretPosition(page)).toBe(4); // 顶上来的那一行（第四行）行首
+    await expectPersistedLines(app.dataDir, ["第一行", "第四行"]);
+  });
+
+  test("选区终点落在行首时，那一行不算被选中", async ({ page, app }) => {
+    // `caretTo(1, 0)` + `Shift+↓` 停在第三行行首：浏览器选区是 `[from, to)`，只该动第二行
+    await caretTo(page, 1, 0);
+    await page.keyboard.press("Shift+ArrowDown");
+
+    await page.keyboard.press("Control+d");
+    expect(await editorText(page)).toBe("第一行\n第三行");
+    expect(await caretPosition(page)).toBe(4);
+    await expectPersistedLines(app.dataDir, ["第一行", "第三行"]);
+  });
+
+  test("全选后 Ctrl+D 清空整篇，且能 Ctrl+Z 撤回、不带出整篇选中", async ({ page, app }) => {
+    await caretTo(page, 0, 0); // 先聚焦编辑器：`Control+a` 要有焦点才选中 textarea 的整篇
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+d");
+    expect(await editorText(page)).toBe("");
+    await expectPersistedLines(app.dataDir, [""]);
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(LINES.join("\n"));
+    const undone = await selection(page);
+    expect(undone.end - undone.start).toBe(0); // 撤销后收成光标，而不是又把整篇选中
+    await expectPersistedLines(app.dataDir, LINES);
+  });
+
+  test("选中多行时 Alt+↓ 整块移动，选区跟着走（因此能连按）", async ({ page, app }) => {
+    await seedLines(app, page, [...LINES, "第四行"]);
+    await caretTo(page, 0, 0);
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("Shift+End"); // 选中第一、二行
+    expect(await selection(page)).toEqual({ start: 0, end: 7 });
+
+    await page.keyboard.press("Alt+ArrowDown");
+    expect(await editorText(page)).toBe("第三行\n第一行\n第二行\n第四行");
+    expect(await selection(page)).toEqual({ start: 4, end: 11 }); // 选区跟着块平移一行
+
+    // 连按第二次：动的还是这一块（选区没丢 —— 这是"能连按"的判据）
+    await page.keyboard.press("Alt+ArrowDown");
+    expect(await editorText(page)).toBe("第三行\n第四行\n第一行\n第二行");
+    expect(await selection(page)).toEqual({ start: 8, end: 15 });
+    await expectPersistedLines(app.dataDir, ["第三行", "第四行", "第一行", "第二行"]);
+  });
+
+  test("块顶到首行 / 底到末行时多行移动不动", async ({ page, app }) => {
+    const FOUR = [...LINES, "第四行"];
+    await seedLines(app, page, FOUR);
+
+    await caretTo(page, 0, 0);
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("Shift+End"); // 选中第一、二行
+    await page.keyboard.press("Alt+ArrowUp"); // 块已在首行 → 不动
+    expect(await editorText(page)).toBe(FOUR.join("\n"));
+
+    await caretTo(page, 2, 0);
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("Shift+End"); // 选中第三、四行
+    await page.keyboard.press("Alt+ArrowDown"); // 块已在末行 → 不动
+    expect(await editorText(page)).toBe(FOUR.join("\n"));
+    await expectPersistedLines(app.dataDir, FOUR);
+  });
 });

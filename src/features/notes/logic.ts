@@ -104,21 +104,77 @@ export function lineRange(text: string, index: number): { start: number; end: nu
 }
 
 /**
- * Ctrl+D 的纯计算：算出「删掉第 index 行」要替换的字符区间与删除后的光标位置。
+ * 选区覆盖的**行范围**（含首尾，`first <= last`）；只有光标（没有选区）时返回 `null` ——
+ * 调用方据此走单行分支。
  *
- * 删整行要连一个换行一起吃掉：优先吃行尾的 `\n`，光标落到下一行行首；末行没有行尾换行，
- * 就改吃行首那个（否则 `"a\n"` 里的末尾空行永远删不掉），光标收到上一行行尾。
- * 整篇只剩一行时退化为清空 —— 与「永远至少有一行」的约定一致。
+ * 边界：浏览器选区是 `[from, to)` —— 终点正好落在某行**行首**时，那一行**没被选中**
+ * （`caretTo(1, 0)` + `Shift+↓` 停在第三行行首，只该动第二行）。
  */
+export function selectionLines(
+  text: string,
+  start: number,
+  end: number,
+): { first: number; last: number } | null {
+  if (start === end) return null;
+  const from = Math.min(start, end);
+  const to = Math.max(start, end);
+  const first = caretLine(text, from).index;
+  const head = caretLine(text, to);
+  const last = head.column === 0 ? Math.max(first, head.index - 1) : head.index;
+  return { first, last };
+}
+
+/**
+ * 删掉 `[first, last]` 这一段逻辑行（`Ctrl+D`；单行是它的退化）：算出要替换的字符区间与
+ * 删除后的光标位置 —— 文本与光标一起交给组件落到 textarea。
+ *
+ * 删整行要连一个换行一起吃掉：块后面还有行就吃**块尾行尾**那个 `\n`，光标落到**块首位置**
+ * （顶上来的那一行行首）；块含末行时末行没有行尾换行，改吃**块首行首**那个（否则 `"a\n"`
+ * 里的末尾空行永远删不掉），光标收到上一行行尾；整篇都在块里则退化为清空 ——
+ * 与「永远至少有一行」的约定一致。
+ */
+export function deleteLines(
+  text: string,
+  first: number,
+  last: number,
+): { start: number; end: number; caret: number } {
+  const lines = text.split("\n");
+  const f = clamp(Math.min(first, last), 0, lines.length - 1);
+  const l = clamp(Math.max(first, last), f, lines.length - 1);
+  const start = caretOffset(text, f, 0);
+  const blockEnd = caretOffset(text, l, lines[l].length);
+  if (l < lines.length - 1) return { start, end: blockEnd + 1, caret: start };
+  if (f > 0) return { start: start - 1, end: blockEnd, caret: start - 1 };
+  return { start: 0, end: blockEnd, caret: 0 };
+}
+
+/** 删一行（行内「删除当前行」按钮走它）：与多行版**同一份规则**，只是块大小为 1 */
 export function deleteLine(
   text: string,
   index: number,
 ): { start: number; end: number; caret: number } {
-  const lines = text.split("\n");
-  const i = clamp(index, 0, lines.length - 1);
-  const start = caretOffset(text, i, 0);
-  const end = start + lines[i].length;
-  if (i < lines.length - 1) return { start, end: end + 1, caret: start };
-  if (i > 0) return { start: start - 1, end, caret: start - 1 };
-  return { start: 0, end, caret: 0 };
+  return deleteLines(text, index, index);
+}
+
+/**
+ * 把 `[first, last]` 这一段**整体**上移（`delta < 0`）或下移（`delta > 0`）一行：与块外相邻
+ * 的那一行交换。块已顶到首行还要上移 / 底到末行还要下移 → `null`（调用方据此什么都不做）。
+ * 不修改入参。单行的 `Alt+↑/↓` 走 `moveItem`，多行走这里。
+ */
+export function moveLines<T>(
+  list: readonly T[],
+  first: number,
+  last: number,
+  delta: number,
+): T[] | null {
+  if (list.length === 0) return null;
+  const f = clamp(Math.min(first, last), 0, list.length - 1);
+  const l = clamp(Math.max(first, last), f, list.length - 1);
+  const neighbour = delta < 0 ? f - 1 : l + 1;
+  if (neighbour < 0 || neighbour >= list.length) return null;
+  const out = list.slice();
+  const [swapped] = out.splice(neighbour, 1);
+  // 摘掉相邻那一行之后块整体挪了一格：上移时插到**块尾之后**、下移时插到**块首之前**
+  out.splice(delta < 0 ? l : f, 0, swapped);
+  return out;
 }
