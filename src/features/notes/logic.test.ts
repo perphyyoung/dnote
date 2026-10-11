@@ -3,6 +3,7 @@ import type { LineBox } from "@/features/notes/logic";
 import {
   caretLine,
   caretOffset,
+  collapseBlankLines,
   deleteLine,
   deleteLines,
   insertIndexAt,
@@ -334,6 +335,59 @@ describe("moveLines", () => {
 
   it("空列表安全", () => {
     expect(moveLines([], 0, 0, 1)).toBeNull();
+  });
+});
+
+describe("collapseBlankLines", () => {
+  it("连续空行只留一个，留段内第一行原样", () => {
+    expect(collapseBlankLines("第一行\n\n\n\n第二行", 0)?.text).toBe("第一行\n\n第二行");
+  });
+
+  it("纯空格 / 制表符行也算空行（缩进用的空白行不该被当成两段的分界）", () => {
+    expect(collapseBlankLines("a\n  \n\t\n \nb", 0)?.text).toBe("a\n  \nb");
+  });
+
+  it("多段各压各的", () => {
+    // 末尾那一串空行压完只剩一个空行 → 文本以单个 `\n` 收尾（= 最后一行是空行）
+    expect(collapseBlankLines("a\n\n\nb\nc\n\n\n\n", 0)?.text).toBe("a\n\nb\nc\n");
+  });
+
+  it("文首 / 文末的连续空行同样各压成一个", () => {
+    expect(collapseBlankLines("\n\na", 0)?.text).toBe("\na");
+    expect(collapseBlankLines("a\n\n\n", 0)?.text).toBe("a\n");
+  });
+
+  it("全篇都是空行 → 压成一个空行（即空文档，与「永远至少有一行」一致）", () => {
+    expect(collapseBlankLines("\n\n\n", 0)?.text).toBe("");
+    expect(collapseBlankLines(" \n\t\n ", 0)?.text).toBe(" ");
+  });
+
+  it("没有可压的就返回 null（调用方据此不写盘、不进撤销栈）", () => {
+    expect(collapseBlankLines("a\nb", 0)).toBeNull();
+    expect(collapseBlankLines("a\n\nb", 0)).toBeNull(); // 只有一个空行
+    expect(collapseBlankLines("", 0)).toBeNull(); // 空文档
+    expect(collapseBlankLines("a\n  \nb", 0)).toBeNull(); // 单个空白行
+  });
+
+  it("光标按内容锚定：所在行留着 → 落到新行号，列不变", () => {
+    // "a\n\n\n\nbc" 共 7 个字符：原光标在末行第 1 列（'c'，offset 6）
+    const result = collapseBlankLines("a\n\n\n\nbc", 6);
+    expect(result?.text).toBe("a\n\nbc");
+    // "a\n\nbc" 的第 2 行第 1 列 = "a\n\n" 之后 + 1 = 4（'c' 自己那一格）
+    expect(result?.caret).toBe(4);
+  });
+
+  it("光标落在被压掉的那些空行上 → 落到这一段的那个空行（列随之归 0）", () => {
+    // "a\n\n\n\nb" 共 6 个字符：第 3 个空行从 offset 4 开始
+    const result = collapseBlankLines("a\n\n\n\nb", 4);
+    expect(result?.text).toBe("a\n\nb");
+    expect(result?.caret).toBe(2); // 留下来的那个空行行首
+  });
+
+  it("末尾连续空行里的光标：落到保留下来的那个空行上", () => {
+    const result = collapseBlankLines("a\n\n\n", 4); // 原光标在最后一个空行
+    expect(result?.text).toBe("a\n");
+    expect(result?.caret).toBe(2); // "a\n" 末尾那个空行行首
   });
 });
 

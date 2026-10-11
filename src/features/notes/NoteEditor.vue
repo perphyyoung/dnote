@@ -4,6 +4,7 @@ import type { LineBox } from "@/features/notes/logic";
 import {
   caretLine,
   caretOffset,
+  collapseBlankLines,
   deleteLine,
   deleteLines,
   insertIndexAt,
@@ -479,6 +480,21 @@ function deleteLineAt(index: number): void {
 }
 
 /**
+ * 右键菜单第三项：**整篇**清除连续空行（连续 ≥2 个空行各留一个）。
+ * 纯函数返回 `null` 就什么都不做 —— 不写盘、不进撤销栈、光标也不动；真压了则与其它结构性编辑
+ * 同一条路（`applyEdit` → 可 `Ctrl+Z` 撤回），光标由纯函数按内容锚定。
+ */
+function collapseAllBlankLines(): void {
+  const el = editor.value;
+  if (!el) return;
+  const from = el.selectionStart;
+  const collapsed = collapseBlankLines(el.value, from);
+  if (collapsed === null) return;
+  applyEdit(collapsed.text, { start: collapsed.caret, end: collapsed.caret }, from);
+  log.info("[notes] 已清除连续空行");
+}
+
+/**
  * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：行内按钮与右键菜单共用
  * （快捷键不管复制 —— 那是浏览器原生的 `Ctrl+C`，见 `design.md` 选择与复制）。
  * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中这几行 + execCommand("copy")」
@@ -530,6 +546,14 @@ const menuItems = computed(() => {
       danger: true,
       onPick: () => {
         deleteLinesAt(menu.first, menu.last);
+        closeContextMenu();
+      },
+    },
+    {
+      // **整篇**清理，与选区无关（与上面两项唯一的差别，见 `design.md` 右键菜单节）
+      label: "清除连续空行",
+      onPick: () => {
+        collapseAllBlankLines();
         closeContextMenu();
       },
     },

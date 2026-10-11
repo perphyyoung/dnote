@@ -197,3 +197,41 @@ export function moveLines<T>(
   out.splice(delta < 0 ? l : f, 0, swapped);
   return out;
 }
+
+/**
+ * 清除**连续空行**（**整篇**，与选区无关）：连续 ≥2 个空行只留 1 个，留段内**第一行原样**；
+ * 单个空行、非空行都不动。
+ *
+ * 「空行」= 内容全是空白字符的行（长度 0、纯空格、制表符、全角空格都算）—— 与「允许空行」的
+ * 口径一致：缩进用的空白行不该被当成两段的分界。
+ *
+ * 返回 `null` = 没有可压的：调用方据此**不写盘、不进撤销栈**，连光标都不动。
+ * `caret` 按**内容**锚定：原光标行留着 → 落到它的新行号（列不变，越界由 `caretOffset` 钳制）；
+ * 它属于被压掉的那些空行 → 落到这一段留下来的那个空行上（列自然变成 0）。
+ */
+export function collapseBlankLines(
+  text: string,
+  caret: number,
+): { text: string; caret: number } | null {
+  const lines = text.split("\n");
+  const at = caretLine(text, caret);
+  const kept: string[] = [];
+  /// 旧行号 → 新行号；被压掉的行指向该段**留下来的**那一行
+  const moved: number[] = [];
+  let collapsed = false;
+
+  for (const line of lines) {
+    const last = kept[kept.length - 1];
+    if (kept.length > 0 && last !== undefined && last.trim() === "" && line.trim() === "") {
+      collapsed = true;
+      moved.push(kept.length - 1);
+      continue;
+    }
+    moved.push(kept.length);
+    kept.push(line);
+  }
+
+  if (!collapsed) return null;
+  const next = kept.join("\n");
+  return { text: next, caret: caretOffset(next, moved[at.index] ?? 0, at.column) };
+}

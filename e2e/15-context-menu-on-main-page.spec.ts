@@ -8,12 +8,14 @@
  * - **贴指针、越界朝指针那一侧翻转**（窗口无边框，越界即看不见）；夹取由纯函数 `menuPosition` 算。
  * - 删除与 `Ctrl+D` 同一条实现（`applyEdit`），所以能 `Ctrl+Z` 撤回。
  */
+import fs from "node:fs";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import {
   caretTo,
   editorText,
   expectPersistedLines,
+  notesFile,
   readClipboard,
   seedLines,
   selection,
@@ -166,5 +168,40 @@ test.describe("右键菜单", () => {
 
     await page.mouse.wheel(0, 200);
     await expect(menu(page)).toHaveCount(0);
+  });
+
+  test("清除连续空行：永远作用于整篇（有选区也一样），且能 Ctrl+Z 撤回", async ({ page, app }) => {
+    const messy = ["第一行", "", "", "", "第二行", "  ", "", ""];
+    await seedLines(app, page, messy);
+
+    // **先选中前两行**：这一项只看整篇，选区不该影响结果（下面断言连文末那段也一起清了）。
+    // 按两次 `Shift+↓`：第 2 行是空行，`Shift+End` 在它上面推不动，所以只能靠方向键下移。
+    await caretTo(page, 0, 0);
+    await page.keyboard.press("Shift+ArrowDown");
+    await page.keyboard.press("Shift+ArrowDown"); // 停在第三行行首 → 覆盖第 1、2 行
+
+    await rightClickLine(page, 0); // 选区之内 → 菜单按选区算（顺便证明选区还在）
+    await expect(item(page, "删除 2 行")).toBeVisible();
+    await item(page, "清除连续空行").click();
+
+    // 每段各留一个、留段内第一行原样：第二段留下的是那个纯空格行
+    const expected = ["第一行", "", "第二行", "  "];
+    expect(await editorText(page)).toBe(expected.join("\n"));
+    await expectPersistedLines(app.dataDir, expected);
+
+    await page.keyboard.press("Control+z");
+    expect(await editorText(page)).toBe(messy.join("\n"));
+    await expectPersistedLines(app.dataDir, messy);
+  });
+
+  test("没有连续空行时点它：文本与磁盘都一个字节不动", async ({ page, app }) => {
+    await seedLines(app, page, ["第一行", "", "第二行"]);
+    const before = fs.readFileSync(notesFile(app.dataDir, "main"), "utf8");
+
+    await rightClickLine(page, 0);
+    await item(page, "清除连续空行").click();
+
+    expect(await editorText(page)).toBe("第一行\n\n第二行");
+    expect(fs.readFileSync(notesFile(app.dataDir, "main"), "utf8")).toBe(before);
   });
 });
