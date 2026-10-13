@@ -454,37 +454,63 @@ export async function pasteAt(page: Page, line = 0): Promise<void> {
 
 /// ---- 窗口尺寸（从 OS 侧改）----
 
-/// `SetWindowPos` 的 C# 样板：按 pid 找到第一个**可见**顶层窗口，只改尺寸（不动位置与层级）。
+/// `SetWindowPos` 的 C# 样板：按 pid 找**主窗口**（类名 `Tauri Window`），只改尺寸（不动位置与层级）。
+///
+/// 为什么认类名，而不是旧实现的"第一个可见顶层窗口"：窗口一**最小化**就沉到 Z 序底部，而
+/// `EnumWindows` 正是按 Z 序枚举的 —— 那一刻"第一个可见窗口"会落到 tao 的辅助窗口上
+/// （`Tao Thread Event Target` / `PseudoConsoleWindow` 这些也报"可见"），`SetWindowPos` 改的是
+/// 它，主窗口一个像素没动。实测症状：次级面板宽度停在 320 没变，用例报 `>= 430` 红 —— 当时
+/// 另一个 worker 正在按 `Win+D`，整机窗口都被最小化了（见 `开发经验.md`）。
+/// 另外最小化态下改几何本来也会被丢掉 → 先 `SW_SHOWNOACTIVATE` 还原（不夺焦点）再改。
 /// 用 PowerShell 内联编译，不引第三方依赖（与剪贴板那两段同一套路）。
 const WIN_RESIZE_SCRIPT = `
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 public class WinResize {
   private delegate bool EnumProc(IntPtr h, IntPtr l);
   [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc cb, IntPtr l);
   [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
   [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
-  public static bool Resize(int pid, int dw, int dh) {
+  public static string Resize(int pid, int dw, int dh) {
     IntPtr target = IntPtr.Zero;
     EnumWindows(delegate(IntPtr h, IntPtr l) {
       uint p;
       GetWindowThreadProcessId(h, out p);
-      if (p == (uint)pid && IsWindowVisible(h)) { target = h; return false; }
-      return true;
+      if (p != (uint)pid || !IsWindowVisible(h)) return true;
+      StringBuilder cls = new StringBuilder(256);
+      GetClassName(h, cls, 256);
+      if (cls.ToString() != "Tauri Window") return true;
+      target = h;
+      return false;
     }, IntPtr.Zero);
-    if (target == IntPtr.Zero) return false;
+    if (target == IntPtr.Zero) return "NOT_FOUND";
+    bool wasMinimized = IsIconic(target);
+    if (wasMinimized) {
+      ShowWindow(target, 4);                              // SW_SHOWNOACTIVATE：还原但不夺焦点
+      System.Threading.Thread.Sleep(150);                 // 还原是异步的，等一下再量
+    }
     RECT r;
-    if (!GetWindowRect(target, out r)) return false;
+    if (!GetWindowRect(target, out r)) return "NO_RECT";
+    // 局部名别用 h / l / p：它们与上面回调的参数重名，而 e2e 调的是 Windows PowerShell 5.1
+    // （Add-Type 走 CodeDom 的 C# 5 编译器，比 pwsh 的 Roslyn 严）—— 报「不能在此范围内声明名为
+    // 'h' 的局部变量」，且错误只指向这一行，很容易误判成传参 / 编码问题（见 开发经验.md）。
+    int curW = r.R - r.L, curH = r.B - r.T;
     // SWP_NOMOVE | SWP_NOZORDER：只改尺寸
-    return SetWindowPos(target, IntPtr.Zero, 0, 0, r.R - r.L + dw, r.B - r.T + dh, 0x0002 | 0x0004);
+    bool ok = SetWindowPos(target, IntPtr.Zero, 0, 0, curW + dw, curH + dh, 0x0002 | 0x0004);
+    return (ok ? "ok" : "SETPOS_FAILED") + (wasMinimized ? " was-minimized" : "")
+      + " " + curW + "x" + curH + " -> " + (curW + dw) + "x" + (curH + dh);
   }
 }
 '@
-if (-not [WinResize]::Resize(__PID__, __DW__, __DH__)) { exit 1 }
+Write-Output ([WinResize]::Resize(__PID__, __DW__, __DH__))
 `;
 
 /**
@@ -494,12 +520,19 @@ if (-not [WinResize]::Resize(__PID__, __DW__, __DH__)) { exit 1 }
  * 「拖右缘只改次级那一栏」正是被测行为（`secondaryPanel.ts` 让次级 `flex-1` 吃掉窗口增量）。
  * 副作用：这笔改动会被 `window-state` 记下，但 e2e 的窗口状态是**每个实例自己一份**（见
  * `DNOTE_WINDOW_STATE`），碰不到 dev 那份。
+ *
+ * 找不到主窗口 / 改失败一律抛异常，并在日志里留一行「改的是哪个窗口、当时是否最小化」：
+ * 静默没改会让用例红在断言处（宽度"没变"），一眼看不出是这一步没生效（见 `WIN_RESIZE_SCRIPT`）。
  */
 export function resizeWindowBy(pid: number, dw: number, dh: number): void {
   const script = WIN_RESIZE_SCRIPT.replace("__PID__", String(pid))
     .replace("__DW__", String(dw))
     .replace("__DH__", String(dh));
-  execFileSync("powershell", ["-NoProfile", "-Command", script], { stdio: "ignore" });
+  const out = execFileSync("powershell", ["-NoProfile", "-Command", script], {
+    encoding: "utf8",
+  }).trim();
+  e2eLog.info(`[resize] 主窗口 ${out}`);
+  if (!out.startsWith("ok")) throw new Error(`改主窗口尺寸失败：${out}`);
 }
 
 /// ---- 窗口几何（OS 侧读）与 Show Desktop（`Win+D`）----
