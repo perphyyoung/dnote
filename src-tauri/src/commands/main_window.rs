@@ -7,6 +7,9 @@
 //! `import("@tauri-apps/api/window")`，sentrux 的导入解析按后缀匹配，`window.rs` 会被误判成
 //! 「bindings.ts 引用了后端业务代码」而报违规（见 `.sentrux/rules.toml` 与 `开发经验.md`）。
 
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use tauri::{AppHandle, LogicalSize, Manager, PhysicalSize, WebviewWindow};
 
 /// 唤起主窗口并聚焦（托盘「显示」、二次启动的单例回调）。
@@ -25,6 +28,66 @@ pub fn hide_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
     }
+}
+
+/// 托盘左键的判定阈值：见 `toggle_from_tray`。
+///
+/// 实测（Windows 11 / tauri 2.12 / tray-icon 0.25）：点托盘时窗口在收到图标消息**之前**约 61ms
+/// 就已经失焦；自动隐藏的任务栏还要先被"拉"上来，间隔仍在 1s 内。而"早就被别的窗口压住"那一档
+/// 是十几秒到几十分钟 —— 1s 是量级选择，两边都留了两三个数量级的余量。
+const TRAY_FRONT_GRACE: Duration = Duration::from_secs(1);
+
+/// 主窗口最后一次失焦的时刻（`None` = 本次运行还没失过焦）
+static LAST_BLUR: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// 记下「刚刚失焦」：`WindowEvent::Focused(false)` 时调（见 `lib.rs`）。
+pub fn note_blur() {
+    if let Ok(mut at) = LAST_BLUR.lock() {
+        *at = Some(Instant::now());
+    }
+}
+
+/// 距今多久失的焦；本次运行还没失过焦时 `None`（纯读，可单测的部分在 `tray_should_hide`）
+fn last_blur_ago() -> Option<Duration> {
+    LAST_BLUR
+        .lock()
+        .ok()
+        .and_then(|at| *at)
+        .map(|at| at.elapsed())
+}
+
+/// 托盘左键：**刚刚还在前台**就收回，否则唤起并置前。
+///
+/// 为什么不能照搬热键那套（`可见 && 未最小化 && 有焦点`）：点托盘会**先**夺走焦点 —— 实测
+/// `Down` 与 `Up` 两个时刻 `is_focused()` 都已经是 `false`，所以照搬会让可见窗口**永远收不起来**
+/// （恒走唤起分支）；而"只按可见性"又会让"可见但被别的窗口压住"的那次点击变成收起，用户得连点
+/// 两次（这就是最初报的那个 bug）。于是改问"距今多久失的焦"：
+///
+/// - 正看着时点托盘 → 这次点击自己夺焦（几十毫秒前）→ 在阈值内 → 收回；
+/// - 早就被压住 / 在托盘里 / 未失焦 → 不在阈值内 → 唤起并置前。
+///
+/// 热键那条**不动**（`commands/hotkey.rs`）：按键不夺焦，`is_focused()` 读到的是真事实，它能真正 toggle。
+pub fn toggle_from_tray(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let visible = w.is_visible().unwrap_or(false);
+        let minimized = w.is_minimized().unwrap_or(false);
+        let blurred_ago = last_blur_ago();
+        let hide = tray_should_hide(visible, minimized, blurred_ago);
+        crate::log_info!(
+            "托盘左键：visible={visible} minimized={minimized} 最近失焦={blurred_ago:?} → {}",
+            if hide { "收回" } else { "唤起" }
+        );
+        if hide {
+            hide_main_window(app);
+        } else {
+            show_main_window(app);
+        }
+    }
+}
+
+/// 托盘左键该收回吗（纯函数，可单测）：**可见 + 未最小化 + 刚刚失过焦**
+fn tray_should_hide(visible: bool, minimized: bool, blurred_ago: Option<Duration>) -> bool {
+    visible && !minimized && blurred_ago.is_some_and(|ago| ago <= TRAY_FRONT_GRACE)
 }
 
 /// 配置里读出来的窗口尺寸（**逻辑像素**，与 `tauri.conf.json` 同单位）。

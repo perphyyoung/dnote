@@ -110,6 +110,13 @@ pub fn run() {
             }
             state.build()
         })
+        // 记下主窗口的失焦时刻：托盘左键的判定要用它 —— 点击托盘会先夺焦，只有"多久之前失的焦"
+        // 才分得出"刚才还在看"与"早就被压住"（见 `commands/main_window.rs` 的 `toggle_from_tray`）。
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(false)) && window.label() == "main" {
+                commands::main_window::note_blur();
+            }
+        })
         .plugin(
             // 全局热键 `Ctrl+Alt+N`（唤起 / 收回主窗口）：注册在 `setup`（见 `commands/hotkey.rs`），
             // 这里只装「任意已注册热键被按下」的统一入口；长按的连发由 `HotkeyHeld` 过滤掉。
@@ -194,22 +201,15 @@ pub fn run() {
                             _ => {}
                         })
                         .on_tray_icon_event(|tray, event| {
-                            // 左键单击按可见性 toggle：隐藏 → 显示并聚焦；可见 → 隐藏。
-                            // 不能用 is_focused 参与判断：点击托盘时窗口已先失焦，恒走显示分支。
+                            // 左键单击：正看着就收回、否则唤起并置前。判定不写在这里 —— 点托盘会先夺焦，
+                            // 所以用的是「刚刚失过焦」时间戳，而不是焦点本身（见 `toggle_from_tray`）。
                             if let TrayIconEvent::Click {
                                 button: MouseButton::Left,
                                 button_state: MouseButtonState::Up,
                                 ..
                             } = event
                             {
-                                let app = tray.app_handle();
-                                if let Some(w) = app.get_webview_window("main") {
-                                    if w.is_visible().unwrap_or(false) {
-                                        commands::main_window::hide_main_window(app);
-                                    } else {
-                                        commands::main_window::show_main_window(app);
-                                    }
-                                }
+                                commands::main_window::toggle_from_tray(tray.app_handle());
                             }
                         })
                         .build(app)?;

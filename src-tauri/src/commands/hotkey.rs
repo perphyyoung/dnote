@@ -36,8 +36,9 @@ impl HotkeyHeld {
 
 /// 主窗口是否「正被用户看着」：可见 + 未最小化 + 有焦点（三个入参都取自窗口实时状态）。
 ///
-/// 抽成纯函数是为了能单测。**只有热键这条路能用 `is_focused`** —— 按热键时窗口不会先失焦；
-/// 托盘左键点击则相反（点下去窗口已经失焦），所以托盘那条仍按「可见性」切换，两者别合并。
+/// 抽成纯函数是为了能单测。**只有热键这条路能用 `is_focused`** —— 按热键不会夺焦，读到的是真事实；
+/// 托盘左键点击相反（点击自己就夺焦，`Down` / `Up` 时 `is_focused()` 都已是 `false`），
+/// 所以托盘那条改用「最近一次失焦的时刻」当前台的替身（见 `main_window::toggle_from_tray`）。
 fn is_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
