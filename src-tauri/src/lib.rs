@@ -100,7 +100,7 @@ pub fn run() {
             // app_config_dir，**给绝对路径**时就用它（`PathBuf::join` 遇绝对路径会整体替换）。
             // 为什么必须有：e2e 跑的是 debug 构建，与 `pnpm dev` 共用 `window-state.dev.json`
             // —— 用例把窗口加宽一栏（次级面板）之后，这份几何会被写回、被下一轮和 dev 实例恢复，
-            // 于是每跑一轮就宽一栏（实测撑到 5195px，右边界跑到屏幕外，见 `开发经验.md`）。
+            // 于是每跑一轮就宽一栏（实测撑到 5195px，右边界跑到屏幕外，见 `开发经验.md` §4.14）。
             let name = std::env::var("DNOTE_WINDOW_STATE")
                 .ok()
                 .filter(|value| !value.is_empty())
@@ -242,7 +242,7 @@ pub fn run() {
                 log_warn!("设置窗口最小尺寸失败：{e}");
             }
             // 再兜一道程序化改尺寸：系统下限管不住 `set_size`，状态文件里可能存着被壳写坏的
-            // 尺寸（Show Desktop 能把窗口几何写成几十像素，且重启自锁 —— 见 `开发经验.md`）。
+            // 尺寸（Show Desktop 能把窗口几何写成几十像素，且重启自锁 —— 见 `开发经验.md` §1.6）。
             // 只能放在 `show()` 之后（show 前 `set_size` 会多算一个 caption 高）。
             if let Err(e) = commands::main_window::ensure_min_size(&main_window) {
                 log_warn!("窗口尺寸兜底失败：{e}");

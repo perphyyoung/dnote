@@ -76,7 +76,7 @@ let dropTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * 拖拽会话。**拖动期间一个字符都不改**：只按指针画幽灵行与插入线，松手那一下才真正重排并落盘。
  * 这样文字不会跳变、光标与撤销栈不受影响 —— 旧实现每次换位都重写 textarea 的值，
- * 正是「拖起来很突兀」的根因（见 `开发经验.md`）。
+ * 正是「拖起来很突兀」的根因（见 `开发经验.md` §3.11）。
  */
 const drag = ref<{
   originIndex: number;
@@ -146,7 +146,7 @@ const continuationArrowTops = computed(() => {
  * 读镜像测层的行盒。**文本、容器宽度、字号、行高比 —— 四个里任何一个变了都必须重测**：
  * 行盒几何由这四者共同决定（前两者决定折行位置，后两者决定每行多高）。少一个，缓存就会
  * 与消费它的 `ROW_H` 不同源 —— 例如改行高比后 `rowSpan = round(旧盒高 / 新行高)` 会算出
- * 假的折行，于是每个逻辑行都长出一个 `↳`（见 `开发经验.md`）。
+ * 假的折行，于是每个逻辑行都长出一个 `↳`（见 `开发经验.md` §3.6）。
  * 用两个 rect 相减而不是 `offsetTop`：后者相对 offsetParent 的哪条边容易被记错，
  * 而「镜像与 textarea 同框对齐」这件事用 rect 差值最直白。
  */
@@ -334,7 +334,7 @@ function updateFromPointer(pointerY: number): void {
 /**
  * 结构性编辑之前的光标位置，只在「紧接着的这次撤销/重做」里用一次。
  * 之所以需要：Chromium 的撤销会恢复编辑前的选区，而我们的替换是「全选 + 插入」，
- * 撤销后如果不收拾，用户看到的是「文本回来了，但整篇被选中」（见 `开发经验.md`）。
+ * 撤销后如果不收拾，用户看到的是「文本回来了，但整篇被选中」（见 `开发经验.md` §3.9）。
  */
 let preEditCaret: number | null = null;
 
@@ -621,7 +621,7 @@ function moveCurrentLine(delta: number): void {
  *
  * 优先走 `document.execCommand("insertText")`：它把这一笔并进浏览器自己的撤销栈，于是
  * **Ctrl+Z 能把「删掉一行 / 移走一行 / 拖拽搬动」撤回来**；直接改 value 是进不了撤销栈的，
- * 而且会把插入符甩到文末（取舍见 `design.md`，机制见 `开发经验.md`）。execCommand 万一不可用
+ * 而且会把插入符甩到文末（取舍见 `design.md`，机制见 `开发经验.md` §3.9）。execCommand 万一不可用
  * （返回 false）就回落为直接写。
  *
  * `target` 是编辑后该落的**选区**（`start === end` 就是光标；多行整块移动时这里是一整块，见
@@ -712,7 +712,7 @@ function flashDropped(index: number): void {
   >
     <!-- 背景装饰层：必须在 textarea **之下** —— 当前行高亮是「给这一行铺底色」，
          而不是「给文字蒙一层灰」。画在文字之上的半透明色块会把文字一起压暗，
-         读起来像整行失焦（见 `开发经验.md`「高亮别盖在文字上」）。 -->
+         读起来像整行失焦（见 `开发经验.md` §3.3）。 -->
     <div
       class="pointer-events-none absolute inset-x-0 top-0"
       :style="{ height: `${editorHeight}px` }"

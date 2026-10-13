@@ -236,7 +236,7 @@ test.describe("次级面板", () => {
     const closedWidth = await viewportWidth(page);
     await handle(page).click();
     // 等窗口真的加宽再取基准：面板是**立刻**渲染的，而 `setSize` 是异步 IPC —— 点完就读会拿到
-    // 旧宽度（`开发经验.md` 里"带 transition 的元素不能点完就读"是同一类坑）。
+    // 旧宽度（`开发经验.md` §4.15 里"带 transition 的元素不能点完就读"是同一类坑）。
     await expect.poll(() => viewportWidth(page)).toBeGreaterThan(closedWidth);
     const windowBefore = await viewportWidth(page);
     const mainBefore = (await rect(page, '[data-panel="main"]')).width;
@@ -373,7 +373,7 @@ test.describe("次级面板", () => {
     await expect(frame(page)).toBeVisible();
     // 展开态：圆心就落在分界线（主面板右缘）上 —— 而不是跑到次级面板右缘去。
     // 用 poll 等 `translate-x-1/2` 那 150ms 过渡落定：探针实测过渡中读到的是
-    // `matrix(1,0,0,1, 0.384, -7)` —— 差的就是那半个圆（与图钉那条同一个坑，见 `开发经验.md`）。
+    // `matrix(1,0,0,1, 0.384, -7)` —— 差的就是那半个圆（与图钉那条同一个坑，见 `开发经验.md` §4.15）。
     await expect
       .poll(async () => Math.abs((await circleCenterX()) - (await mainRightX())))
       .toBeLessThanOrEqual(1);

@@ -4,7 +4,7 @@
 //! 真窗口那半边（`set_min_size` / `set_size` / 真点一次托盘）在单测里跑不了，交给手工验收：
 //! 把窗口往小拖到极限时客户区停在下限、日志不再刷 warn；连按两次 `Win+D` 后窗口不受影响、退出后
 //! 看状态文件里 `main` 仍是正常尺寸；未置顶 + 别的窗口在前台时点一次托盘就应到前台（日志里那行
-//! `托盘左键：… → 收回/唤起`）。详见 `开发经验.md`。
+//! `托盘左键：… → 收回/唤起`）。详见 `开发经验.md` §1.6 / §4.7。
 
 use super::{clamped_size, track_size, tray_should_hide, SizeBounds, TRAY_FRONT_GRACE};
 use std::time::Duration;
@@ -24,7 +24,7 @@ fn bounds() -> SizeBounds {
 fn track_size_adds_the_measured_frame() {
     // 实测边框：左右合计 16、上下合计 9（无边框 + 可缩放窗口那圈不可见缩放边框）。
     // 系统拦的是外框，所以下限要按这个补出去，客户区才真的停在配置值上 ——
-    // 日志里 244×480 / 360×191 正是"没补"时客户区能到的地方（见 `开发经验.md`）。
+    // 日志里 244×480 / 360×191 正是"没补"时客户区能到的地方（见 `开发经验.md` §1.6）。
     assert_eq!(
         track_size(PhysicalSize::new(260, 200), PhysicalSize::new(16, 9)),
         PhysicalSize::new(276, 209)
@@ -42,7 +42,7 @@ fn track_size_is_config_min_when_frame_is_zero() {
 
 #[test]
 fn tiny_size_goes_back_to_default() {
-    // 被 Show Desktop 写坏的就是这一档（实测 144×19，见 `开发经验.md`）
+    // 被 Show Desktop 写坏的就是这一档（实测 144×19，见 `开发经验.md` §1.6）
     assert_eq!(
         clamped_size(PhysicalSize::new(144, 19), 1.0, bounds()),
         Some(LogicalSize::new(360.0, 480.0))

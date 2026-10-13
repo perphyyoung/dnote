@@ -52,7 +52,7 @@ pnpm release
 
 - 笔记存于 `<数据目录>/dnote.txt`（主面板）与 `<数据目录>/dnote-secondary.txt`（次级面板），**一行一条，行序即顺序**；文件内容与界面逐行一致，两块面板各写各的文件、互不牵动。
 - 数据目录：dev 在 `<项目根>/dnote-data/`（`DNOTE_DATA_DIR` 可重定向），release 在应用配置目录（`%APPDATA%\com.dnote.perphyyoung`），两种构建互不共享。
-- 行格式：每行都以 `\n` 结尾（含最后一行）；读取时按 `\n` 切分并丢弃末尾由终止换行产生的空串，兼容手改出来的 CRLF。这样末尾空行也能原样往返（原因见 `开发经验.md`）。
+- 行格式：每行都以 `\n` 结尾（含最后一行）；读取时按 `\n` 切分并丢弃末尾由终止换行产生的空串，兼容手改出来的 CRLF。这样末尾空行也能原样往返（原因见 `开发经验.md` §2.1）。
 - 写入是**整文件重写**，走 `dnote.txt.tmp` + `rename` 原子替换，异常退出最多丢最后一个防抖窗口（400ms）。
 - 窗口尺寸 / 位置由官方 `tauri-plugin-window-state` 存于应用配置目录（release 为 `.window-state.json`，dev 为 `window-state.dev.json`）；`DNOTE_WINDOW_STATE` 可指定别的文件（e2e 靠它把窗口几何与 dev 分开，免得互相覆盖）。
 

@@ -5,7 +5,7 @@
 //!
 //! 文件名叫 `main_window` 而不是 `window`：`src/bindings.ts`（tauri-specta 生成物）里有
 //! `import("@tauri-apps/api/window")`，sentrux 的导入解析按后缀匹配，`window.rs` 会被误判成
-//! 「bindings.ts 引用了后端业务代码」而报违规（见 `.sentrux/rules.toml` 与 `开发经验.md`）。
+//! 「bindings.ts 引用了后端业务代码」而报违规（见 `.sentrux/rules.toml` 与 `开发经验.md` §4.10）。
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -105,13 +105,13 @@ struct SizeBounds {
 /// - `tauri-plugin-window-state` 在 `WindowEvent::Resized` 时把事件里的尺寸直接记进缓存
 ///   （退出时落盘），守卫只有「非最小化 / 非最大化」，**没有尺寸下限校验** —— 壳（Show
 ///   Desktop 等）给一个几十像素的几何事件就能把几何写坏，重启按坏值恢复、退出又原样存回，
-///   自锁（见 `开发经验.md`「Win+D 会把窗口几何写坏」）。
+///   自锁（见 `开发经验.md` §1.6）。
 /// - 而系统下限**管不住程序化 `set_size`**：状态文件里那份 144×19 照样能恢复出来。
 /// 所以启动时（以及从托盘唤回时）再兜一道 —— 坏值在窗口上只停留一瞬，插件下次保存拿到的
 /// 已是修正后的值。
 ///
 /// 运行中**不挂**尺寸监控：正常拖动已经被系统下限拦住，再盯一遍只会与用户的手抢着改尺寸
-/// （日志里那 30 条连发的成因，见 `开发经验.md`）。
+/// （日志里那 30 条连发的成因，见 `开发经验.md` §1.6）。
 ///
 /// 配置里没写 `minWidth` / `minHeight` 就不兜底 —— 没有下限，任何尺寸都可能是用户的本意。
 pub fn ensure_min_size(window: &WebviewWindow) -> tauri::Result<bool> {
@@ -139,7 +139,7 @@ pub fn ensure_min_size(window: &WebviewWindow) -> tauri::Result<bool> {
 /// 摘掉再算 `WM_GETMINMAXINFO`（`platform_impl/windows/util.rs` 的 `adjust_window_rect`），
 /// 于是那个值被当成**外框**下限设了出去 —— 而无边框 + 可缩放的窗口真的有那圈不可见缩放边框，
 /// 客户区因此能再小一圈（实测左右合计 16、上下合计 9）。表现就是"正常拖到极限，客户区已经
-/// 小于配置值"（日志里 `244×480`、`360×191`，见 `开发经验.md`）。
+/// 小于配置值"（日志里 `244×480`、`360×191`，见 `开发经验.md` §1.6）。
 ///
 /// 做法：把实测到的边框补进下限再交给系统 —— 设出去的外框下限 = 客户区下限 + 边框，客户区
 /// 于是拖不到配置值以下。全用物理像素传，避开逻辑 / 物理换算的舍入。

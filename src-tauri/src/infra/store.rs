@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// 主面板的笔记文件；文件名只在这里出现一次（`开发经验.md` 里那些 e2e 辅助函数是另一份口径）
+/// 主面板的笔记文件；文件名只在这里出现一次（`开发经验.md` §2.1 里那些 e2e 辅助函数是另一份口径）
 pub const MAIN_NOTES_FILE: &str = "dnote.txt";
 /// 次级面板的笔记文件。**与主面板分开存**：两块面板的笔记互不牵动，
 /// 一个文件被手改坏 / 清空，另一份照旧。

@@ -460,7 +460,7 @@ export async function pasteAt(page: Page, line = 0): Promise<void> {
 /// `EnumWindows` 正是按 Z 序枚举的 —— 那一刻"第一个可见窗口"会落到 tao 的辅助窗口上
 /// （`Tao Thread Event Target` / `PseudoConsoleWindow` 这些也报"可见"），`SetWindowPos` 改的是
 /// 它，主窗口一个像素没动。实测症状：次级面板宽度停在 320 没变，用例报 `>= 430` 红 —— 当时
-/// 另一个 worker 正在按 `Win+D`，整机窗口都被最小化了（见 `开发经验.md`）。
+/// 另一个 worker 正在按 `Win+D`，整机窗口都被最小化了（见 `开发经验.md` §4.2）。
 /// 另外最小化态下改几何本来也会被丢掉 → 先 `SW_SHOWNOACTIVATE` 还原（不夺焦点）再改。
 /// 用 PowerShell 内联编译，不引第三方依赖（与剪贴板那两段同一套路）。
 const WIN_RESIZE_SCRIPT = `
@@ -501,7 +501,7 @@ public class WinResize {
     if (!GetWindowRect(target, out r)) return "NO_RECT";
     // 局部名别用 h / l / p：它们与上面回调的参数重名，而 e2e 调的是 Windows PowerShell 5.1
     // （Add-Type 走 CodeDom 的 C# 5 编译器，比 pwsh 的 Roslyn 严）—— 报「不能在此范围内声明名为
-    // 'h' 的局部变量」，且错误只指向这一行，很容易误判成传参 / 编码问题（见 开发经验.md）。
+    // 'h' 的局部变量」，且错误只指向这一行，很容易误判成传参 / 编码问题（见 开发经验.md §4.4）。
     int curW = r.R - r.L, curH = r.B - r.T;
     // SWP_NOMOVE | SWP_NOZORDER：只改尺寸
     bool ok = SetWindowPos(target, IntPtr.Zero, 0, 0, curW + dw, curH + dh, 0x0002 | 0x0004);
