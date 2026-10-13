@@ -25,7 +25,7 @@
         "decorations": false,
         "visible": false,
         "alwaysOnTop": true,
-        "skipTaskbar": true,
+        "skipTaskbar": false,
         "resizable": true,
         "fullscreen": false,
         "theme": "Dark",

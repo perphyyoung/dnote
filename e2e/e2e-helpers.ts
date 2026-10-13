@@ -340,37 +340,48 @@ export function clearPinPreference(page: Page): Promise<void> {
   return page.evaluate((key) => localStorage.removeItem(key), PIN_KEY);
 }
 
-/// ---- 剪贴板与粘贴 ----
+/// ---- 整机唯一资源的串行锁 ----
 
-/// 系统剪贴板是**整机唯一**资源：多 worker 并行时，一个 worker 写剪贴板会串到另一个 worker
-/// 正在进行的 Ctrl+V / Ctrl+C 上（表现为偶发的「内容不对」，极难排查）。
-/// 因此凡是用到剪贴板的动作，都要包在 `withClipboard` 里串行执行。
-/// 锁用 `mkdir` 的原子性实现（目录已存在即被占用）；持锁方异常退出时，20s 后由等待方强制接管。
-const CLIPBOARD_LOCK = path.join(TEMP, "clipboard.lock");
-
-export async function withClipboard<T>(fn: () => Promise<T>): Promise<T> {
+/// 跨进程锁：用 `mkdir` 的原子性实现（目录已存在即被占用）；持锁方异常退出时，
+/// 20s 后由等待方强制接管。两个使用者：系统剪贴板、`Win+D`（显示桌面）。
+async function withMachineLock<T>(
+  lockDir: string,
+  label: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   fs.mkdirSync(TEMP, { recursive: true });
   const deadline = Date.now() + 30_000;
   let held = false;
   while (!held && Date.now() < deadline) {
     try {
-      fs.mkdirSync(CLIPBOARD_LOCK);
+      fs.mkdirSync(lockDir);
       held = true;
     } catch {
-      const stat = fs.statSync(CLIPBOARD_LOCK, { throwIfNoEntry: false });
+      const stat = fs.statSync(lockDir, { throwIfNoEntry: false });
       if (stat && Date.now() - stat.mtimeMs > 20_000) {
-        fs.rmSync(CLIPBOARD_LOCK, { recursive: true, force: true });
+        fs.rmSync(lockDir, { recursive: true, force: true });
         continue;
       }
       await new Promise((r) => setTimeout(r, 50));
     }
   }
-  if (!held) throw new Error("等待剪贴板锁超时（超过 30s）");
+  if (!held) throw new Error(`等待${label}锁超时（超过 30s）`);
   try {
     return await fn();
   } finally {
-    fs.rmSync(CLIPBOARD_LOCK, { recursive: true, force: true });
+    fs.rmSync(lockDir, { recursive: true, force: true });
   }
+}
+
+/// ---- 剪贴板与粘贴 ----
+
+/// 系统剪贴板是**整机唯一**资源：多 worker 并行时，一个 worker 写剪贴板会串到另一个 worker
+/// 正在进行的 Ctrl+V / Ctrl+C 上（表现为偶发的「内容不对」，极难排查）。
+/// 因此凡是用到剪贴板的动作，都要包在 `withClipboard` 里串行执行。
+const CLIPBOARD_LOCK = path.join(TEMP, "clipboard.lock");
+
+export function withClipboard<T>(fn: () => Promise<T>): Promise<T> {
+  return withMachineLock(CLIPBOARD_LOCK, "剪贴板", fn);
 }
 
 /// 把文本写进系统剪贴板。**必须在 `withClipboard` 内调用。**
@@ -489,6 +500,192 @@ export function resizeWindowBy(pid: number, dw: number, dh: number): void {
     .replace("__DW__", String(dw))
     .replace("__DH__", String(dh));
   execFileSync("powershell", ["-NoProfile", "-Command", script], { stdio: "ignore" });
+}
+
+/// ---- 窗口几何（OS 侧读）与 Show Desktop（`Win+D`）----
+
+/// `GetWindowRect` + `IsIconic` 的 C# 样板：按 pid 取**主窗口**（类名 `Tauri Window`）的
+/// `宽,高,x,y,是否最小化`。不按"第一个可见窗口"取：同一进程还有 tao 的事件目标 / 托盘 / 热键 /
+/// IME 这些辅助窗口，顺序不是契约；认类名则是（认不出来直接 exit 1，用例会响亮地失败，
+/// 而不是拿错窗口默默断言）。
+const WINDOW_RECT_SCRIPT = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class WinRect {
+  private delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [StructLayout(LayoutKind.Sequential)] private struct RECT { public int L, T, R, B; }
+  public static string Read(int pid) {
+    IntPtr target = IntPtr.Zero;
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      uint p;
+      GetWindowThreadProcessId(h, out p);
+      if (p != (uint)pid || !IsWindowVisible(h)) return true;
+      StringBuilder cls = new StringBuilder(256);
+      GetClassName(h, cls, 256);
+      if (cls.ToString() != "Tauri Window") return true;
+      target = h;
+      return false;
+    }, IntPtr.Zero);
+    if (target == IntPtr.Zero) return "";
+    RECT r;
+    if (!GetWindowRect(target, out r)) return "";
+    return (r.R - r.L) + "," + (r.B - r.T) + "," + r.L + "," + r.T + "," + (IsIconic(target) ? "1" : "0");
+  }
+}
+'@
+$out = [WinRect]::Read(__PID__)
+if (-not $out) { exit 1 }
+Write-Output $out
+`;
+
+/** 主窗口的外框几何（**物理像素**，与 `resizeWindowBy` 同一坐标系） */
+export interface WindowRect {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  minimized: boolean;
+}
+
+/**
+ * 读主窗口的外框几何（OS 侧实测，不是页面里算的）。
+ *
+ * 为什么从系统侧读：Show Desktop 与拖边框改的都是**窗口**，页面里的 `innerWidth` 只是客户区。
+ * 读不到窗口时抛异常（辅助窗口的类名变了 / 窗口被隐藏），不让用例静默通过。
+ */
+export function windowRect(pid: number): WindowRect {
+  const out = execFileSync(
+    "powershell",
+    ["-NoProfile", "-Command", WINDOW_RECT_SCRIPT.replace("__PID__", String(pid))],
+    { encoding: "utf8" },
+  ).trim();
+  const [width, height, x, y, minimized] = out.split(",").map(Number);
+  return { width, height, x, y, minimized: minimized === 1 };
+}
+
+/// 合成一次 `Win+D`：注入的按键是**系统级**的，会立刻最小化整机所有窗口（再按一次则还原）——
+/// 不只是被测窗口。用它的用例要心里有数：并行 worker 的窗口也会跟着最小化一瞬
+/// （CDP 输入不受影响，但被最小化的窗口会被浏览器降频）。
+///
+/// 这里用老的 `keybd_event` 而不是 `SendInput`：后者要求 `cbSize` **恰好**等于 `sizeof(INPUT)`
+/// （x64 上是 40 —— 由联合体里最大的 `MOUSEINPUT` 决定），只声明 `KEYBDINPUT` 时是 32，
+/// `SendInput` 会**静默返回 0**（实测踩过：按键一点效果没有，用例假绿）。不碰结构体就没这坑。
+const SHOW_DESKTOP_SCRIPT = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class ShowDesktop {
+  [DllImport("user32.dll")] private static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  private static void Key(byte vk, bool up) {
+    keybd_event(vk, 0, up ? 2u : 0u, UIntPtr.Zero);   // 2 = KEYEVENTF_KEYUP
+    System.Threading.Thread.Sleep(60);
+  }
+  public static void Press() {
+    Key(0x5B, false);   // LWIN
+    Key(0x44, false);   // D
+    Key(0x44, true);
+    Key(0x5B, true);
+  }
+}
+'@
+[ShowDesktop]::Press()
+`;
+
+/** 按一次 `Win+D`（显示桌面；再按一次还原）。**会最小化整机所有窗口**，见上面注释。 */
+export function showDesktop(): void {
+  execFileSync("powershell", ["-NoProfile", "-Command", SHOW_DESKTOP_SCRIPT], { stdio: "ignore" });
+}
+
+const SHOW_DESKTOP_LOCK = path.join(TEMP, "show-desktop.lock");
+
+/**
+ * 把「按两次 `Win+D` + 断言」整段串起来（**整机唯一**资源，与剪贴板同一套锁）。
+ *
+ * 为什么必须串行：`Win+D` 是**整机级开关**，不是一个窗口的动作 —— 并行 worker 各按各的会互相
+ * 抵消（A 按下 → 全最小化；B 按下 → 全还原；A 再按 → 又全最小化……「按两次回到原样」就不成立了）。
+ * 实测：`--repeat-each=3`（三个 worker 同时跑）时三条全红，就是因为这个。
+ *
+ * 代价（写在这里免得以后忘）：锁内「桌面被显示」的那一小段时间里，**别的 worker 的窗口也是
+ * 最小化的**（CDP 输入不受影响，但被最小化的窗口会被浏览器降频）。所以锁内只做这条用例必需的
+ * 两个按键与几个断言，不要夹别的操作。
+ */
+export function withShowDesktop<T>(fn: () => Promise<T>): Promise<T> {
+  return withMachineLock(SHOW_DESKTOP_LOCK, "Win+D（显示桌面）", fn);
+}
+
+/// 读当前**前台窗口的类名**：用来判「`Win+D` 到底生效了没有」—— 显示桌面之后前台会落到
+/// 桌面窗口（`Progman` / `WorkerW` 之类），而不是原来那个应用。合成按键不生效时它会原样不变，
+/// 「窗口没被最小化」这类断言就变成同义反复了。
+const FOREGROUND_CLASS_SCRIPT = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class FgWindow {
+  [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  public static string Class() {
+    StringBuilder s = new StringBuilder(256);
+    GetClassName(GetForegroundWindow(), s, 256);
+    return s.ToString();
+  }
+}
+'@
+Write-Output ([FgWindow]::Class())
+`;
+
+/** 当前前台窗口的类名（合成按键是否生效的判据，见 `showDesktop`） */
+export function foregroundClass(): string {
+  return execFileSync("powershell", ["-NoProfile", "-Command", FOREGROUND_CLASS_SCRIPT], {
+    encoding: "utf8",
+  }).trim();
+}
+
+/// 数**整机**已最小化的可见顶层窗口（有标题的）—— `Win+D` 生效的话这个数会立刻变大。
+/// 比"前台是不是桌面"可靠：显示桌面之后前台窗口是谁，随 shell 版本而异（实测仍停在原窗口），
+/// 但"一堆窗口变最小化"是它唯一的目的，谁都绕不过去。
+const MINIMIZED_COUNT_SCRIPT = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class MinCount {
+  private delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowTextW(IntPtr h, StringBuilder s, int n);
+  public static int Count() {
+    int n = 0;
+    EnumWindows(delegate(IntPtr h, IntPtr l) {
+      if (!IsWindowVisible(h) || !IsIconic(h)) return true;
+      StringBuilder t = new StringBuilder(256);
+      GetWindowTextW(h, t, 256);
+      if (t.Length > 0) n++;
+      return true;
+    }, IntPtr.Zero);
+    return n;
+  }
+}
+'@
+Write-Output ([MinCount]::Count())
+`;
+
+/** 整机已最小化（且可见、有标题）的顶层窗口数 —— `Win+D` 是否真的生效，看它变大 */
+export function minimizedWindowCount(): number {
+  return Number(
+    execFileSync("powershell", ["-NoProfile", "-Command", MINIMIZED_COUNT_SCRIPT], {
+      encoding: "utf8",
+    }).trim(),
+  );
 }
 
 /// ---- 落盘（每块面板一个文件）----

@@ -39,17 +39,17 @@
 - `CARGO_TARGET_DIR` 是**机器级环境变量**，指向共享目录 `D:\cargo-shared-target`；所有指向构建产物的脚本必须读该变量、不得硬编码（`scripts/gen-bindings.mjs` 已是此写法）。共享 target 是**全局一把锁**：与其它 tauri 项目不能并行 build，后者只会 `Blocking waiting for file lock`（等待，不是失败）。
 - `src/bindings.ts` 是 tauri-specta 运行期导出的生成物：不手改、不入格式化；改了 Rust 命令签名，跑 `pnpm check` 或 `pnpm dev` 即自动复写。
 - `tauri.conf.json` 的取值**以 schema 为准**，不要按 serde 的宽松程度写（窗口 `theme` 必须写大写 `"Dark"`，原因见 `开发经验.md`）。
-- 主窗口是**工具窗口**（`skipTaskbar: true`），**别改回 `false`**；窗口尺寸只走 `commands/main_window.rs` 的两条 —— `apply_min_size`（把配置的**客户区**下限补上那圈不可见边框后交给系统）与 `ensure_min_size`（启动 / 唤回时兜底），别在别处改尺寸、也不要在运行中挂 `Resized` 监控。理由与踩过的坑见 `开发经验.md`。
+- 主窗口**占任务栏与 Alt+Tab**（`skipTaskbar: false`）：**别改回 `true`**（那样 `Alt+Tab` 里就找不到它了）；代价是它也是 Show Desktop 的目标，所以 **`Win+D` 前后几何必须一致**，由 e2e `16` 盯着（别删、别放宽）。窗口尺寸只走 `commands/main_window.rs` 的两条 —— `apply_min_size`（把配置的**客户区**下限补上那圈不可见边框后交给系统）与 `ensure_min_size`（启动 / 唤回时兜底），别在别处改尺寸、也不要在运行中挂 `Resized` 监控。理由与踩过的坑见 `开发经验.md`。
 - dev 数据在 `<项目根>/dnote-data/`，release 在应用配置目录，两种构建互不共享；`DNOTE_DATA_DIR` 只用于重定向数据目录（e2e 靠它给每个实例分数据）。
 - **`DNOTE_WINDOW_STATE`（存在且非空）指定窗口状态文件**：只给名字时相对 app_config_dir，给绝对路径时就用它（`PathBuf::join` 遇绝对路径整体替换）。e2e 注入「实例数据目录里的那个文件」—— 否则它与 `pnpm dev` 共用 `window-state.dev.json`，用例为次级面板加宽的那一栏会被写回并被下一轮恢复，**每跑一轮窗口就宽一栏**（实测撑到 5195px，见 `开发经验.md`）。
 - **dev 与 release 的图标不同**（两者常同机并跑）：dev 的托盘与任务栏用通用「红底白字 DEV」图标，release 用应用自身图标。资产与样板都项目无关、可整段复制：`scripts/gen-dev-icon.mjs` + `src-tauri/icons/tray-dev.rgba` + `infra/tray.rs`；改脚本的 `--size` 必须同步 `tray.rs` 的 `DEV_ICON_SIZE`（编译期断言会挡下不一致）。
 - **`DNOTE_NO_TRAY`（存在且非空）不建托盘**：e2e 会注入它（并行的每个实例都建托盘会塞满系统托盘）。窗口与任务栏图标照旧；**e2e 用例不要点 header 的 `-` 隐藏** —— 没有托盘就再没有唤回入口。
 - **本机任务栏默认自动隐藏**：手工测托盘（点它切换窗口显隐）时要**先把鼠标移到屏幕底缘、停一下把任务栏"唤醒"**，图标矩形才会从贴边的 `y≈1078` 抬到 `y≈1032` —— 没唤醒时按 `y≈1078` 点，点的是屏幕底边、托盘收不到事件（合成点击与读图标矩形的做法见 `开发经验.md` 的「托盘左键」一节）。
 - **单实例只在 release 构建注册**：debug（`pnpm dev` / e2e）不抢锁，所以 `pnpm dev` 能与常驻的 release 实例并存，e2e 也能并行起多个实例。锁的键是 app identifier，细节与验证方法见 `开发经验.md`。
-- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（默认 **4 worker**；**每个 spec 文件一个实例**）。**窗口尺寸改不了的地方从 OS 侧改**：`resizeWindowBy(pid, dw, dh)`（user32 的 `SetWindowPos`）—— 拖窗口边框是系统的 hit-test，Playwright 只能操作页面内容（次级面板那两条就是这么验的）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的编辑器 textbox、`拖拽调整顺序` 的行手柄按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**（现有：01 多行粘贴、02 多行选择与复制、03 置顶、04 回车断行、05 拖拽调序、06 编辑器快捷键、07 当前行行内操作、08 点最后一行下方、09 长行折行、10 折行的视觉反馈、11 标题条图标与拖动区、12 设置面板、13 次级面板、14 帮助面板、15 右键菜单）；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
+- e2e 用 Playwright + CDP 连真实调试二进制：`pnpm e2e`（默认 **4 worker**；**每个 spec 文件一个实例**）。**窗口尺寸改不了的地方从 OS 侧改**：`resizeWindowBy(pid, dw, dh)`（user32 的 `SetWindowPos`）—— 拖窗口边框是系统的 hit-test，Playwright 只能操作页面内容（次级面板那两条就是这么验的）。定位器一律用 **ARIA 语义角色**（`role="application"` 的应用外壳、`aria-label="笔记内容"` 的编辑器 textbox、`拖拽调整顺序` 的行手柄按钮），不要用 class 选择器。`e2e/<序号>-<功能>-<介词>-<页面>.spec.ts` 的**序号一旦分配不复用、不重排**（现有：01 多行粘贴、02 多行选择与复制、03 置顶、04 回车断行、05 拖拽调序、06 编辑器快捷键、07 当前行行内操作、08 点最后一行下方、09 长行折行、10 折行的视觉反馈、11 标题条图标与拖动区、12 设置面板、13 次级面板、14 帮助面板、15 右键菜单、16 `Win+D` 前后窗口尺寸）；测试侧日志写进 `dnote.log`（见 `日志使用说明.md`）。
 - **e2e 只跑相关的那几个 spec 文件**（改了哪块跑哪块），**非必要不跑全量**；跑的时候**不要过滤 / 截断输出**，直接看完整结果 —— e2e 的输出本来就不长，截一刀反而会把失败原因（哪个用例、哪一行、Expected/Received）切掉。
 - e2e 用例**必须从 `./e2e-helpers` 导入 `test`**（不是 `@playwright/test`）：那里挂了 auto 的 `testSection` fixture，会在 `dnote.log` 里为每个用例记「用例名 + 结果 + 耗时」两行分节日志，从别处导入就没有这层日志。`expect` 仍从 `@playwright/test` 导入。用例用 `app` / `page` 两个 fixture 拿实例与页面，不要自己 `beforeAll` 起进程。
-- e2e 里**动系统剪贴板的动作必须整段包在 `withClipboard()` 内**（含按键与读写两步）：剪贴板是整机唯一资源，并行 worker 会互相串内容，表现为偶发的「内容不对」（见 `开发经验.md`）。实例数据目录需预置时用 `seedLines(app, page, lines)`，不要自己在 spec 里拼路径。
+- e2e 里**动系统剪贴板的动作必须整段包在 `withClipboard()` 内**（含按键与读写两步）：剪贴板是整机唯一资源，并行 worker 会互相串内容，表现为偶发的「内容不对」（见 `开发经验.md`）。`Win+D` 这类**整机级按键**同理，包在 `withShowDesktop()` 内 —— 而且**断言也要在锁内**（锁外的断言会被别的 worker 按键改掉状态）；合成系统按键别用 `SendInput`（`cbSize` 细节写错会静默失败、用例假绿），用 `keybd_event`。实例数据目录需预置时用 `seedLines(app, page, lines)`，不要自己在 spec 里拼路径。
 - 构建时打印的 `Removed unused commands from ...` 是 `build.removeUnusedCommands: true` 的正常输出，不是告警。
 
 ## 结构速记
