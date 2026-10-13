@@ -33,6 +33,10 @@ import {
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
+/// 实例起跑时的客户区宽度：`tauri.conf.json` 的 `width: 360`（跨语言无法共享常量，
+/// 收尾要把窗口钉回这个值 —— 理由是"展开时主宽 := 关态窗宽"，收不干净就会一条条变宽）
+const DEFAULT_VIEWPORT = 360;
+
 /// 与 `features/settings/secondaryPanel.ts` 的 KEY 一致（跨语言无法共享常量）
 const PANEL_KEY = "dnote:secondary-panel";
 const WIDTH_KEY = "dnote:secondary-panel-width";
@@ -104,15 +108,33 @@ test.describe("次级面板", () => {
       [PANEL_KEY, WIDTH_KEY, MAIN_WIDTH_KEY],
     );
     await seedLines(app, page, MAIN_NOTE);
+    // 起跑宽度：窗口宽度是「展开加一栏、收起减回主宽」当场加减的，上一体用例漏收一栏就会在这里显形
+    e2eLog.info("[secondary] 起跑宽度", JSON.stringify({ viewport: await viewportWidth(page) }));
   });
 
-  test.afterEach(async ({ page }) => {
-    // **收尾必须真的走一次收起**：窗口宽度是开关那一下当场加减的，光清偏好 + 重载**收不回**那一栏
-    // （reload 不改窗口尺寸）。留下的宽几何会被 window-state 写进
-    // `%APPDATA%\com.dnote.perphyyoung\window-state.dev.json`，而那份 dev 与 e2e **共用** ——
-    // 于是每跑一轮就再宽一栏（实测：主面板越来越宽，右边界都跑到屏幕外了）。
+  test.afterEach(async ({ app, page }) => {
+    // 收尾两步：① 走一次**真收起**（窗口宽度是开关那一下当场加减的，光清偏好 + 重载收不回那一栏）；
+    // ② 再把窗口宽度**钉回实例起跑时的值** —— 只靠"收起"回到的是「主宽」，而**展开时主宽 := 关态窗宽**，
+    // 所以上一次漏下来的宽度会被下一次展开收编成新的主宽，一条条越来越宽。实测（本文件的历史数据）：
+    // 起跑宽度 360 → 600 → 1040 → 960 → 1280 → 1600，主面板跟着一路变宽、右边界迟早跑出屏幕。
     try {
-      if ((await frame(page).count()) > 0) await handle(page).click();
+      if ((await frame(page).count()) > 0) {
+        const beforeClose = await viewportWidth(page);
+        await handle(page).click();
+        // **等状态切完再往下走**：`closeSecondary` 里 `setMinSize` / `setSize` / `settleWidth` 都是
+        // async，点完立刻清偏好 + reload 会把 JS 上下文换掉 —— `setSize` 那一步根本没发出去，
+        // 而且**不报错**（不是异常，是导航把 await 链掐了）。等 frame 消失即可：它在 `finally` 里切，
+        // 那时上面几步都已 await 完。
+        await expect(frame(page)).toHaveCount(0);
+        e2eLog.info(
+          "[secondary] 收尾收起",
+          JSON.stringify({ beforeClose, afterClose: await viewportWidth(page) }),
+        );
+      }
+      // 钉回默认客户区宽（`tauri.conf.json` 的 `width: 360`）：分界线拖动那几条要靠主面板有余量
+      // 才拖得动（收起只回到"主宽"时可能是 260 下限，-80 直接夹住、用例假红）
+      const delta = DEFAULT_VIEWPORT - (await viewportWidth(page));
+      if (delta !== 0 && app.child.pid) resizeWindowBy(app.child.pid, delta, 0);
     } catch (e) {
       e2eLog.warn("[secondary] 收尾收起次级面板失败", String(e));
     }
