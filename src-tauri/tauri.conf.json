@@ -27,6 +27,7 @@
         "alwaysOnTop": true,
         "skipTaskbar": false,
         "resizable": true,
+        "maximizable": false,
         "fullscreen": false,
         "theme": "Dark",
         "transparent": true

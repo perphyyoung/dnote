@@ -88,9 +88,14 @@ pub fn run() {
             // 下次启动窗口不显示）。
             // 排除 DECORATIONS：边框形态由配置决定（无边框自绘），否则插件会把旧的
             // 原生边框状态恢复回来。
+            // 排除 MAXIMIZED：主窗口禁止最大化（配置里的 maximizable:false → 无 WS_MAXIMIZEBOX，
+            // 双击标题栏与拖到屏幕顶边的 Aero Snap 都因此失效）。但插件的恢复是**程序化**
+            // maximize()，不受这个样式位限制——历史状态文件里的 maximized:true 会被原样恢复
+            // 回来，所以这个标记本身也必须排除。
             let mut state = tauri_plugin_window_state::Builder::default().with_state_flags(
                 tauri_plugin_window_state::StateFlags::all()
                     & !tauri_plugin_window_state::StateFlags::VISIBLE
+                    & !tauri_plugin_window_state::StateFlags::MAXIMIZED
                     & !tauri_plugin_window_state::StateFlags::DECORATIONS,
             );
             // dev/release 状态文件分离：release 用插件默认名（带前置点，插件内硬编码），
@@ -194,6 +199,7 @@ pub fn run() {
                                 let _ = app.save_window_state(
                                     StateFlags::all()
                                         & !StateFlags::VISIBLE
+                                        & !StateFlags::MAXIMIZED
                                         & !StateFlags::DECORATIONS,
                                 );
                                 app.exit(0);
