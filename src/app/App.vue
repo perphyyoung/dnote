@@ -100,6 +100,20 @@ function toggleOverlay(which: "settings" | "help"): void {
   overlay.value = overlay.value === which ? null : which;
 }
 
+/// 标题条按钮的悬停态：**自绘**（`hoveredKey`），不用 `:hover` 伪类。
+/// 为什么不能只靠 `:hover`：点 `-` 缩进托盘时指针就停在按钮上，WebView2 不会补 `pointerleave`；
+/// 窗口重新显示时系统也不会补 `WM_MOUSEMOVE`（光标没动过），于是 `:hover` 命中一直挂着 ——
+/// 表现就是"缩进托盘再唤回，那颗按钮还亮着"。自绘后只由"指针真的又进来过"决定。
+type HeaderKey = "help" | "pin" | "settings" | "hide";
+const hoveredKey = ref<HeaderKey | null>(null);
+
+/// 标题条按钮配色：常亮（浮层开着 / 已置顶）或正被悬停 → 亮色；悬停再加一层薄纱底
+function headerBtnClass(key: HeaderKey, lit = false): string {
+  const hot = hoveredKey.value === key;
+  const color = lit || hot ? "text-[var(--note-fg)]" : "text-[var(--note-fg-faint)]";
+  return hot ? `${color} bg-[var(--note-fg-veil)]` : color;
+}
+
 /// 点一组推荐：把前景与背景**一起**设好（连着两次 setter，没有第三份状态、也就没有隐藏联动）。
 /// 之后照样能用两个取色器各自微调 —— 那是"自定义"，`currentThemeName` 会自动变成 `null`。
 function applyTheme(theme: Theme) {
@@ -232,13 +246,27 @@ function onHeaderDown(e: PointerEvent): void {
   closeOverlay();
 }
 
-onMounted(() => document.addEventListener("keydown", onGlobalKeydown));
-onUnmounted(() => document.removeEventListener("keydown", onGlobalKeydown));
+onMounted(() => {
+  document.addEventListener("keydown", onGlobalKeydown);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+});
+onUnmounted(() => {
+  document.removeEventListener("keydown", onGlobalKeydown);
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+});
 
 function hideToTray() {
   closeOverlay(); // 顺手收起浮层：收进托盘时不该留一个"展开着"的界面状态
+  // 缩进托盘期间指针不会再产生任何事件，悬停态必须现在清掉（见 hoveredKey 的注释）
+  hoveredKey.value = null;
   // 无边框窗口没有系统按钮，隐藏到托盘（core:window:allow-hide）
   void getCurrentWindow().hide();
+}
+
+/// 页面转为不可见（点 `-`、托盘收起、热键切换、最小化、`Win+D`）＝窗口不再看着指针了，
+/// 悬停态一律清掉：这是**所有**隐藏路径的共同兜底，免得只有走 `-` 那条才干净
+function onVisibilityChange(): void {
+  if (document.hidden) hoveredKey.value = null;
 }
 </script>
 
@@ -279,15 +307,13 @@ function hideToTray() {
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded transition"
-        :class="
-          helpOpen
-            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
-            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
-        "
+        :class="headerBtnClass('help', helpOpen)"
         title="帮助"
         aria-label="帮助"
         aria-haspopup="dialog"
         :aria-expanded="helpOpen"
+        @pointerenter="hoveredKey = 'help'"
+        @pointerleave="hoveredKey = null"
         @click="toggleOverlay('help')"
       >
         ?
@@ -295,14 +321,12 @@ function hideToTray() {
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded transition"
-        :class="
-          alwaysOnTop
-            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
-            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
-        "
+        :class="headerBtnClass('pin', alwaysOnTop)"
         :title="alwaysOnTop ? '取消置顶' : '置顶'"
         aria-label="置顶"
         :aria-pressed="alwaysOnTop"
+        @pointerenter="hoveredKey = 'pin'"
+        @pointerleave="hoveredKey = null"
         @click="togglePin"
       >
         <svg
@@ -327,23 +351,24 @@ function hideToTray() {
       <button
         type="button"
         class="flex h-6 w-6 items-center justify-center rounded transition"
-        :class="
-          settingsOpen
-            ? 'text-[var(--note-fg)] hover:bg-[var(--note-fg-veil)]'
-            : 'text-[var(--note-fg-faint)] hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]'
-        "
+        :class="headerBtnClass('settings', settingsOpen)"
         title="设置"
         aria-label="设置"
         aria-haspopup="dialog"
         :aria-expanded="settingsOpen"
+        @pointerenter="hoveredKey = 'settings'"
+        @pointerleave="hoveredKey = null"
         @click="toggleOverlay('settings')"
       >
         ⚙
       </button>
       <button
         type="button"
-        class="flex h-6 w-6 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]"
+        class="flex h-6 w-6 items-center justify-center rounded transition"
+        :class="headerBtnClass('hide')"
         title="隐藏到托盘"
+        @pointerenter="hoveredKey = 'hide'"
+        @pointerleave="hoveredKey = null"
         @click="hideToTray"
       >
         -
