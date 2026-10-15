@@ -16,6 +16,8 @@ export const commands = {
 	 *  若回读真实值，dev 里开关会被自己打回去，e2e 的判据也会随机器状态飘。
 	 */
 	setAutostart: (on: boolean) => __TAURI_INVOKE<boolean>("set_autostart", { on }),
+	/**  设置面板的 F9 开关（前端按偏好调用）：把意图落到系统上，并回读实际状态。 */
+	setHotkey: (on: boolean) => __TAURI_INVOKE<boolean>("set_hotkey", { on }),
 	/**  前端上报日志：经全局级别过滤，被过滤的日志不落盘（前端有本地缓存预判）。 */
 	logMsg: (level: string, message: string) => __TAURI_INVOKE<void>("log_msg", { level, message }),
 	/**  查询当前全局最低日志级别（小写字符串，供前端启动时同步缓存）。 */

@@ -1,11 +1,13 @@
-//! 全局热键 `Ctrl+Alt+N`：唤起 / 收回主窗口。
+//! 全局热键 `F9`：唤起 / 收回主窗口。
 //!
-//! 只在 Rust 侧用插件（不走前端 IPC），故 `capabilities` 无需开 global-shortcut 权限。
-//! **不支持重设热键**：键位就是下面那个常量 —— 没有设置项、不落盘、前端也没有相关命令
-//! （这一点是它与 cdown 那份的主要差别）。
+//! 只在 Rust 侧用插件（不走前端 IPC 注册），故 `capabilities` 无需开 global-shortcut 权限。
+//! **键位固定（不可自定义），但可在设置面板关掉**：偏好源在前端 localStorage（缺省 = 开，
+//! 见 `src/features/settings/globalHotkey.ts`），系统侧只是它的执行结果 —— 所以不在 `setup`
+//! 里无条件注册，而是由前端启动时按偏好调 `set_hotkey` 幂等应用一次（与开机自启同一口径，
+//! 理由也同源：系统侧只能表达「现在有没有注册」，表达不了「默认开、用户关过」）。
 //!
 //! 两条从 cdown 抄来的经验：
-//! - **键位不在插件构建期注册**（构建期注册失败会让启动直接失败），而在 `setup` 里注册；
+//! - **键位不在插件构建期注册**（构建期注册失败会让启动直接失败），而在运行期按偏好注册；
 //!   失败只记日志、不影响启动 —— 键可能被别的程序或另一个实例占着。
 //! - 长按会连发 `Pressed`，必须靠 `HotkeyHeld` 过滤成「松手后的新一次按下」，否则窗口疯狂开合。
 
@@ -17,7 +19,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 use super::main_window::{hide_main_window, show_main_window};
 
 /// 唯一的全局热键。也是日志里打出来的那个串 —— 键位只在这一处出现。
-pub const HOTKEY: &str = "Ctrl+Alt+N";
+pub const HOTKEY: &str = "F9";
 
 /// 热键是否处于「按下未松」状态：由它过滤长按的自动重复。
 #[derive(Default)]
@@ -43,20 +45,50 @@ fn is_in_front(visible: bool, minimized: bool, focused: bool) -> bool {
     visible && !minimized && focused
 }
 
-/// 注册全局热键（`setup` 里调一次）。解析失败 / 注册失败都只记日志：热键是锦上添花，
-/// 不能因为它让应用起不来。
-pub fn register(app: &AppHandle) {
+/// 按偏好把全局热键设成「注册」或「注销」，返回**实际**是否处于注册状态（前端据此回滚开关）。
+/// 解析失败 / 注册失败都只记日志并返回 `false`：热键是锦上添花，不能因为它让应用起不来；
+/// 关掉时连 `HotkeyHeld` 一起复位，否则「按下未松」会跨开关残留、下次按下被当成长按重复。
+fn apply(app: &AppHandle, on: bool) -> bool {
     let shortcut: Shortcut = match HOTKEY.parse() {
         Ok(shortcut) => shortcut,
         Err(e) => {
             crate::log_warn!("全局热键串「{HOTKEY}」无法解析：{e}");
-            return;
+            return false;
         }
     };
-    match app.global_shortcut().register(shortcut) {
-        Ok(()) => crate::log_info!("全局热键已注册：{HOTKEY}"),
-        Err(e) => crate::log_warn!("全局热键 {HOTKEY} 注册失败（可能已被占用）：{e}"),
+    if on {
+        // 幂等：本进程已注册就当成成功。三个窗口（主 / 设置 / 日历）挂载时都会按偏好应用一次，
+        // 重复注册会拿到插件的报错并打出一条假警告。
+        if app.global_shortcut().is_registered(shortcut) {
+            return true;
+        }
+        return match app.global_shortcut().register(shortcut) {
+            Ok(()) => {
+                crate::log_info!("全局热键已注册：{HOTKEY}");
+                true
+            }
+            Err(e) => {
+                crate::log_warn!("全局热键 {HOTKEY} 注册失败（可能已被占用）：{e}");
+                false
+            }
+        };
     }
+    // 注销：本就未注册也算成功 —— 语义是「让它不处于注册状态」，幂等
+    if let Err(e) = app.global_shortcut().unregister(shortcut) {
+        crate::log_warn!("全局热键 {HOTKEY} 注销未生效（可能本就未注册）：{e}");
+    }
+    if let Some(held) = app.try_state::<HotkeyHeld>() {
+        held.release();
+    }
+    crate::log_info!("全局热键已注销：{HOTKEY}");
+    false
+}
+
+/// 设置面板的 F9 开关（前端按偏好调用）：把意图落到系统上，并回读实际状态。
+#[tauri::command]
+#[specta::specta]
+pub fn set_hotkey(app: AppHandle, on: bool) -> bool {
+    apply(&app, on)
 }
 
 /// 热键触发的切换：主窗口正显示在前台 → 收回托盘；其余（托盘中 / 最小化 / 被别的程序压住）

@@ -25,6 +25,7 @@ import {
   resetForegroundColor,
   setForegroundColor,
 } from "@/features/settings/foreground";
+import { applyGlobalHotkey, globalHotkey, setGlobalHotkey } from "@/features/settings/globalHotkey";
 import {
   LINE_HEIGHT_MAX,
   LINE_HEIGHT_MIN,
@@ -83,6 +84,8 @@ onMounted(() => {
   void applyPin(localStorage.getItem(PIN_KEY) !== "0");
   // 开机自启同理：按偏好（缺省 = 开）幂等应用一次；后端在 dev / 无人值守下不写注册表
   void applyAutoStart();
+  // 全局热键 F9 同理：偏好（缺省 = 开）在前端，注册由它在启动时幂等应用一次
+  void applyGlobalHotkey();
   // 次级面板：按偏好（缺省 = 关）把窗口兜到放得下的宽度。窗口尺寸由 window-state 恢复，
   // 这里只补「恢复出来的宽度装不下两栏」这种情况。
   void applySecondaryPanel();
@@ -543,7 +546,28 @@ function onVisibilityChange(): void {
           </div>
         </div>
 
+        <!-- 全局热键：键位固定 F9（不可自定义），只能开关。关掉是**真的注销** —— F9 是系统级
+             独占键，注册期间别的程序收不到它。注册失败（被占用）时开关自动弹回、原因只进日志
+             （面板不给设置项写说明文案）。本行与开机自启同属「系统集成」，分隔线挂在组首行。 -->
         <div class="flex items-center justify-between gap-2 border-t border-slate-700 pt-2">
+          <p class="text-xs text-slate-300">启用全局热键 F9</p>
+          <button
+            type="button"
+            role="switch"
+            :aria-checked="globalHotkey"
+            aria-label="全局热键 F9"
+            class="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+            :class="globalHotkey ? 'bg-emerald-600' : 'bg-slate-700'"
+            @click="setGlobalHotkey(!globalHotkey)"
+          >
+            <span
+              class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-slate-100 transition-transform"
+              :class="globalHotkey ? 'translate-x-4' : 'translate-x-0'"
+            />
+          </button>
+        </div>
+
+        <div class="flex items-center justify-between gap-2">
           <p class="text-xs text-slate-300">开机自启</p>
           <!-- 开关样式与角色照 cdown 的 SettingsToggle：点击直接上报，失败由上层回滚 -->
           <button

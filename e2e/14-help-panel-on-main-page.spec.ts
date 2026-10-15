@@ -22,7 +22,7 @@ const settingsButton = (page: Page) => page.getByRole("button", { name: "设置"
 const settingsPanel = (page: Page) => page.getByRole("dialog", { name: "设置" });
 
 /// 快捷键表格里逐行出现的键位，顺序也要一致 —— `Alt+↑ / Alt+↓` 是同一行
-const KEYS = ["Ctrl+D", "Alt+↑ / Alt+↓", "Alt+S", "Ctrl+Alt+N"];
+const KEYS = ["Ctrl+D", "Alt+↑ / Alt+↓", "Alt+S", "F9"];
 
 test.describe("帮助面板", () => {
   test.beforeEach(async ({ page }) => {

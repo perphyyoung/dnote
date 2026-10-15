@@ -19,8 +19,8 @@ const appVersion = __APP_VERSION__;
 const SHORTCUTS: ReadonlyArray<{ keys: string; what: string }> = [
   { keys: "Ctrl+D", what: "删除光标所在行" },
   { keys: "Alt+↑ / Alt+↓", what: "上下移动光标所在行" },
-  { keys: "Alt+S", what: "展开 / 收起次级面板" },
-  { keys: "Ctrl+Alt+N", what: "唤起 / 收回窗口" },
+  { keys: "Alt+S", what: "展开/收起次级面板" },
+  { keys: "F9", what: "唤起/收回窗口（设置里启用）" },
 ];
 
 /// 「与普通笔记应用的区别」：一条一行、一句话说清一件事（约 24 个全角字以内）

@@ -19,6 +19,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::notes::load_notes,
             commands::notes::save_notes,
             commands::autostart::set_autostart,
+            commands::hotkey::set_hotkey,
             infra::logging::log_msg,
             infra::logging::get_log_level,
             infra::logging::set_log_level,
@@ -123,9 +124,9 @@ pub fn run() {
             }
         })
         .plugin(
-            // 全局热键 `Ctrl+Alt+N`（唤起 / 收回主窗口）：注册在 `setup`（见 `commands/hotkey.rs`），
-            // 这里只装「任意已注册热键被按下」的统一入口；长按的连发由 `HotkeyHeld` 过滤掉。
-            // 也不在构建期指定键位：构建期注册失败会让**启动直接失败**。
+            // 全局热键 `F9`（唤起 / 收回主窗口）：这里只装「任意已注册热键被按下」的统一入口，
+            // 长按的连发由 `HotkeyHeld` 过滤掉。键位与注册 / 注销都在 `commands/hotkey.rs`，
+            // 由前端按偏好调 `set_hotkey` 决定（不在构建期指定键位：构建期注册失败会让**启动直接失败**）。
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
                     use tauri_plugin_global_shortcut::ShortcutState;
@@ -224,9 +225,8 @@ pub fn run() {
                 }
             }
 
-            // 全局热键：在这里注册（失败只记日志，不影响启动 —— 键可能被别的程序或另一个实例
-            // 占着，比如 e2e 并行的多个实例）。插件与统一入口在 builder 那边，实现见 `commands/hotkey.rs`。
-            commands::hotkey::register(app.handle());
+            // 全局热键不在这里注册：偏好（缺省开 / 用户关过）在前端 localStorage、Rust 看不到，
+            // 改由前端启动时调 `set_hotkey` 幂等应用一次（与开机自启同口径，见 `commands/hotkey.rs`）。
 
             // 主窗口配置为 visible:false（避免几何恢复前的尺寸闪变），此处亮相
             let main_window = app.get_webview_window("main").expect("主窗口不存在");
