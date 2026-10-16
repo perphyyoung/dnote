@@ -434,8 +434,8 @@ test.describe("次级面板", () => {
     await expect(settings()).toHaveCount(0);
 
     // 再开：点**次级面板**区域同样收起（遮罩盖整窗）。
-    // 注意点哪儿：面板宽 224px、就在窗口右缘，贴着右缘点会点进面板里（那里 `pointerdown.stop`，
-    // 不该收起）—— 所以取面板左缘再往左 40px，仍在次级面板范围内。
+    // 注意点哪儿：设置面板就在窗口右缘，贴着右缘点会点进面板里（那里
+    // `pointerdown.stop`，不该收起）—— 所以取**面板左缘再往左 40px**。
     await gear().click();
     await expect(settings()).toBeVisible();
     await page.mouse.click(box.x - 40, 200);

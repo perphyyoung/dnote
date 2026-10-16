@@ -453,9 +453,12 @@ function onVisibilityChange(): void {
          所以不存在"谁在上面"的问题。卡片因此永远是窗口级浮层：贴窗口右缘 = 各自入口按钮
          正下方，与次级面板开不开无关（曾经把设置面板摁在主面板里，展开次级面板后就和齿轮错位了）。 -->
     <div v-if="overlay" class="absolute inset-x-0 top-8 bottom-0 z-30" @pointerdown="closeOverlay">
+      <!-- 面板宽度与帮助面板**同宽**（`w-80`）：原先那档 224px 太挤 —— 长一点的控件组、以及
+           导出状态行里的绝对路径都要折成好几行。`max-w` / `max-h` 两条与帮助面板同口径：
+           窄窗随窗口收缩（最小窗口宽 260px 放得下）、矮窗（最小高度 200px）内容能滚。 -->
       <div
         v-if="settingsOpen"
-        class="absolute right-2 top-1 w-56 space-y-2 rounded-lg border border-slate-700 bg-slate-800 p-3 shadow-xl"
+        class="absolute right-2 top-1 max-h-[calc(100%-0.5rem)] w-80 max-w-[calc(100%-1rem)] space-y-2 overflow-y-auto rounded-lg border border-slate-700 bg-slate-800 p-3 shadow-xl"
         role="dialog"
         aria-label="设置"
         @pointerdown.stop
