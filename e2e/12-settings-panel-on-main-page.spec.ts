@@ -11,9 +11,12 @@
  *   同一 worker 的其它 spec 共用这份
  *   profile，所以用例结束**必须复位**，否则会污染 09/10 的几何断言。
  */
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { rowHeight, seedLines, test } from "./e2e-helpers";
+import { backupPath, editor as panelEditor, rowHeight, seedLines, test } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
 const DEFAULT_SIZE = "14px";
@@ -75,6 +78,11 @@ test.describe("设置面板", () => {
         "dnote:line-height",
         "dnote:autostart",
         "dnote:always-on-top",
+        // 次级面板这三个：备份用例要展开它才能断言两块面板，展开态（与两个宽度）留在
+        // WebView profile 里会跨轮次污染别的用例（界面上多出一个 textarea → strict mode 必红）
+        "dnote:secondary-panel",
+        "dnote:secondary-panel-width",
+        "dnote:main-panel-width",
       ]) {
         localStorage.removeItem(key);
       }
@@ -431,5 +439,96 @@ test.describe("设置面板", () => {
     await gear(page).click();
     await expect(page.getByLabel("笔记行高比")).toHaveValue("1.2");
     expect(await rowHeight(page)).toBe(before);
+  });
+
+  // ── 全量笔记备份（导出 / 导入 zip）──────────────────────────────────────────
+  // e2e 点不到原生文件对话框：`launchApp` 注入了 `DNOTE_BACKUP_PATH`（实例数据目录里的一个 zip），
+  // 导出写它、导入读它 —— 于是这两条覆盖的是「打包 → 解包 → 二次确认 → 落地」整条链路。
+
+  /// 次级面板默认收起：展开并直接输入一段可辨识的内容（改 DOM 即改前端那份事实源）。
+  /// 保持展开 —— 收起后 textarea 消失，导入后的断言就读不到它了；展开态由 `afterEach`
+  /// 连偏好一起清掉（否则会跨轮次污染后面的用例）。
+  async function seedSecondary(page: Page, text: string): Promise<void> {
+    await page.keyboard.press("Alt+s");
+    const secondary = panelEditor(page, "secondary");
+    await expect(secondary).toBeVisible();
+    await secondary.fill(text);
+  }
+
+  test("笔记备份：导出 → 改乱 → 导入（确认）后两块面板都还原", async ({ app, page }) => {
+    const zip = backupPath(app);
+    fs.rmSync(zip, { force: true }); // 同 worker 同序号复用目录：先清掉上一轮残留
+    const mainText = NOTE.join("\n");
+    const secondaryText = "次级面板的内容";
+    await seedSecondary(page, secondaryText);
+
+    // 导出：真的落盘一个 zip，状态行报出**绝对路径**（只给文件名没法定位）
+    await gear(page).click();
+    await page.getByRole("button", { name: "导出笔记备份" }).click();
+    await expect(panel(page).getByText(`已导出到 ${zip}`)).toBeVisible();
+    expect(fs.existsSync(zip), "导出应真的落盘").toBe(true);
+    expect(fs.statSync(zip).size, "导出的 zip 不该是空文件").toBeGreaterThan(0);
+
+    // 改乱两块面板（先收起面板，贴近真实操作）
+    await page.keyboard.press("Escape");
+    await panelEditor(page).fill("被改乱的主面板");
+    await panelEditor(page, "secondary").fill("被改乱的次级面板");
+
+    // 导入 → 取消：一个字节都不该动
+    await gear(page).click();
+    const confirm = page.getByRole("alertdialog", { name: "导入确认" });
+    await page.getByRole("button", { name: "导入笔记备份" }).click();
+    await expect(confirm, "导入前必须二次确认").toBeVisible();
+    await page.getByRole("button", { name: "取消导入" }).click();
+    await expect(confirm).toHaveCount(0);
+    expect(await panelEditor(page).inputValue()).toBe("被改乱的主面板");
+
+    // 导入 → 确认：两块面板都还原成导出那一刻的内容
+    await page.getByRole("button", { name: "导入笔记备份" }).click();
+    await expect(confirm).toBeVisible();
+    await page.getByRole("button", { name: "确认导入" }).click();
+    await expect(confirm).toHaveCount(0);
+    await expect(panel(page).getByText("已导入")).toBeVisible();
+    expect(await panelEditor(page).inputValue()).toBe(mainText);
+    expect(await panelEditor(page, "secondary").inputValue()).toBe(secondaryText);
+  });
+
+  test("笔记备份：文件不存在 / 不是 zip 时报错，且不动笔记", async ({ app, page }) => {
+    const zip = backupPath(app);
+    await gear(page).click();
+    const trigger = () => page.getByRole("button", { name: "导入笔记备份" });
+
+    // 文件不存在
+    fs.rmSync(zip, { force: true });
+    await trigger().click();
+    await expect(panel(page).getByText(/备份文件读写失败/)).toBeVisible();
+
+    // 存在但不是 zip
+    fs.writeFileSync(zip, "这不是一个 zip");
+    await trigger().click();
+    await expect(panel(page).getByText(/不是有效的 zip/)).toBeVisible();
+
+    // 是合法 zip、也装着两个同名 txt，但没有清单：仍必须拒绝
+    //（只认 dnote 导出的包 —— 任意两个 txt 无从判断哪份是主、哪份是次级）。
+    // 用 PowerShell 现压一个，正好覆盖「用户自己压的包」这条路。
+    const bare = path.join(app.dataDir, "bare-notes");
+    fs.mkdirSync(bare, { recursive: true });
+    fs.writeFileSync(path.join(bare, "dnote.txt"), "甲\n");
+    fs.writeFileSync(path.join(bare, "dnote-secondary.txt"), "乙\n");
+    execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        `Compress-Archive -Path "${bare}\\*" -DestinationPath "${zip}" -Force`,
+      ],
+      { encoding: "utf8" },
+    );
+    await trigger().click();
+    await expect(panel(page).getByText(/不是 dnote 的笔记备份/)).toBeVisible();
+
+    // 三条失败都不该动笔记，也不该弹确认框
+    await expect(page.getByRole("alertdialog", { name: "导入确认" })).toHaveCount(0);
+    expect(await panelEditor(page).inputValue()).toBe(NOTE.join("\n"));
   });
 });

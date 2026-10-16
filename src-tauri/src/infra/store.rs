@@ -123,7 +123,7 @@ impl NotesStores {
 ///
 /// 末尾必须带终止换行，否则末尾的空行无法与「没有这一行」区分：
 /// `["a", ""]` 若写成 `"a\n"`，读回来只剩 `["a"]`。
-fn encode_lines(lines: &[String]) -> String {
+pub(crate) fn encode_lines(lines: &[String]) -> String {
     let mut out = String::new();
     for line in lines {
         out.push_str(line);
@@ -137,7 +137,7 @@ fn encode_lines(lines: &[String]) -> String {
 ///
 /// 与 `encode_lines` 互为逆运算：`[]` ↔ `""`、`["a"]` ↔ `"a\n"`、
 /// `["a", ""]` ↔ `"a\n\n"` 都能精确往返。
-fn decode_lines(raw: &str) -> Vec<String> {
+pub(crate) fn decode_lines(raw: &str) -> Vec<String> {
     let mut lines: Vec<String> = raw
         .split('\n')
         .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())

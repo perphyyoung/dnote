@@ -654,6 +654,16 @@ function applyEdit(text: string, target: { start: number; end: number }, from: n
   flushNow();
 }
 
+/**
+ * 用外部文本整份替换（导入笔记备份用）：走同一个 `applyEdit`，于是这一笔也在浏览器撤销栈里
+ * （主面板可 Ctrl+Z 撤销）。光标落在文首 —— 导入后用户看到的是新内容的开头。
+ */
+function replaceAll(text: string): void {
+  applyEdit(text, { start: 0, end: 0 }, 0);
+}
+
+defineExpose({ replaceAll });
+
 // ── 拖到边缘自动滚动（长笔记必需，否则拖不到窗口外的行）────────────────────
 let raf = 0;
 

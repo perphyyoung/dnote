@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import HelpPanel from "@/features/help/HelpPanel.vue";
+import { exportNotesBackup, pickNotesBackup, type ImportedNotes } from "@/features/notes/backup";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
 import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
@@ -101,6 +102,67 @@ const helpOpen = computed(() => overlay.value === "help");
 /// 再点自己的入口即收起；点另一个入口直接换（互斥由这一个 ref 保证）
 function toggleOverlay(which: "settings" | "help"): void {
   overlay.value = overlay.value === which ? null : which;
+}
+
+// ── 全量笔记备份：导出 / 导入两块面板的笔记（zip）────────────────────────────
+/// 备份行的动作结果提示：面板里唯一的动作反馈（导出要能说明存到哪了、导入要能说明失败原因）
+const backupMsg = ref<string | null>(null);
+const backupError = ref<string | null>(null);
+/// 待确认的导入内容：非空即显示确认框（导入是破坏性操作，`design.md` 要求二次确认）
+const pendingImport = ref<ImportedNotes | null>(null);
+/// 两块面板的编辑器实例（次级面板收起时为空 —— 那一刻它没有 textarea）
+const mainEditor = ref<InstanceType<typeof NoteEditor> | null>(null);
+const secondaryEditor = ref<InstanceType<typeof NoteEditor> | null>(null);
+
+async function onExportNotes(): Promise<void> {
+  backupMsg.value = null;
+  backupError.value = null;
+  try {
+    const path = await exportNotesBackup();
+    // 报**绝对路径**：只给文件名没法定位（用户可能刚选了个自己不熟悉的目录）。
+    // 状态行开了 `break-all`，长路径折行显示；完整路径同时也进日志。
+    if (path !== null) backupMsg.value = `已导出到 ${path}`;
+  } catch (e) {
+    backupError.value = String(e);
+  }
+}
+
+async function onImportNotes(): Promise<void> {
+  backupMsg.value = null;
+  backupError.value = null;
+  try {
+    const notes = await pickNotesBackup();
+    // 只有真读到内容才弹确认框：确认之前一个字节都不写（后端只解包、不落盘）
+    if (notes !== null) pendingImport.value = notes;
+  } catch (e) {
+    backupError.value = String(e);
+  }
+}
+
+/// 确认导入：两块面板各替换一次。可见编辑器走 `replaceAll`（内部是 `applyEdit`，可 Ctrl+Z 撤销），
+/// 收起的面板没有编辑器实例，退回 `setContent` + `flushNow`
+function confirmImport(): void {
+  const notes = pendingImport.value;
+  pendingImport.value = null;
+  if (notes === null) return;
+  const targets = [
+    { panel: "main" as const, editor: mainEditor.value, text: notes.main.join("\n") },
+    {
+      panel: "secondary" as const,
+      editor: secondaryEditor.value,
+      text: notes.secondary.join("\n"),
+    },
+  ];
+  for (const { panel, editor, text } of targets) {
+    if (editor !== null) {
+      editor.replaceAll(text);
+      continue;
+    }
+    const store = useNotes(panel);
+    store.setContent(text);
+    store.flushNow();
+  }
+  backupMsg.value = "已导入";
 }
 
 /// 标题条按钮的悬停态：**自绘**（`hoveredKey`），不用 `:hover` 伪类。
@@ -221,6 +283,11 @@ function toggleSecondary(): void {
 /// 动作**，焦点不在任何元素上时（刚启动、点过标题条）也要响应。（编辑器那两个快捷键不同：
 /// 它们只在编辑器内有意义，才必须元素级、不挂 document。）
 function onGlobalKeydown(e: KeyboardEvent): void {
+  // 导入确认框开着时 `Esc` 先归它（与「颜色搭配弹层」同一口径：别顺手把整个面板也关了）
+  if (pendingImport.value !== null && e.code === "Escape") {
+    pendingImport.value = null;
+    return;
+  }
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && e.code === "KeyS") {
     // 组字中是在选字；`repeat` 是按住不放的连发 —— 每次都要发一轮 setMinSize / setSize 的 IPC
     if (e.isComposing || e.repeat) return;
@@ -585,10 +652,82 @@ function onVisibilityChange(): void {
             />
           </button>
         </div>
+
+        <!-- 全量笔记备份：两块面板的笔记打包成 zip（导出）/ 从 zip 覆盖回来（导入）。
+             只覆盖**笔记**，不动字号/颜色/热键这些界面偏好；导入是破坏性操作，必须二次确认
+             （见 design.md「删除与确认」）。状态行是面板里唯一的动作反馈：导出把**绝对路径**
+             报出来（只给文件名没法定位）、导入要说明失败原因。 -->
+        <div class="border-t border-slate-700 pt-2">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs text-slate-300">全量笔记备份</p>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+                aria-label="导出笔记备份"
+                @click="onExportNotes"
+              >
+                导出
+              </button>
+              <button
+                type="button"
+                class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+                aria-label="导入笔记备份"
+                @click="onImportNotes"
+              >
+                导入
+              </button>
+            </div>
+          </div>
+          <p
+            v-if="backupError !== null || backupMsg !== null"
+            class="mt-1 break-all text-[11px]"
+            :class="backupError !== null ? 'text-rose-300' : 'text-emerald-300'"
+            :title="backupError ?? backupMsg ?? ''"
+          >
+            {{ backupError ?? backupMsg }}
+          </p>
+        </div>
       </div>
 
       <!-- 帮助面板：静态内容自成一档（`features/help/HelpPanel.vue`），这里只按 `overlay` 二选一 -->
       <HelpPanel v-else />
+    </div>
+
+    <!-- 导入确认（破坏性操作，必须二次确认）：自绘 —— `design.md` 明写原生 `window.confirm`
+         在 WebView2 下不生效。层级取项目已有的最高档 `z-40`，盖住设置/帮助浮层。 -->
+    <div
+      v-if="pendingImport !== null"
+      class="absolute inset-0 z-40 flex items-center justify-center bg-black/40"
+      @pointerdown.self="pendingImport = null"
+    >
+      <div
+        class="w-56 space-y-3 rounded-lg border border-slate-700 bg-slate-800 p-3 shadow-xl"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="导入确认"
+        @pointerdown.stop
+      >
+        <p class="text-xs text-slate-200">将用备份覆盖主面板与次级面板的全部笔记。</p>
+        <div class="flex justify-end gap-2">
+          <button
+            type="button"
+            class="rounded px-2 py-1 text-[11px] text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+            aria-label="取消导入"
+            @click="pendingImport = null"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            class="rounded bg-slate-700 px-2 py-1 text-[11px] text-slate-100 transition hover:bg-slate-600"
+            aria-label="确认导入"
+            @click="confirmImport"
+          >
+            导入
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 两块面板：同一窗口里左右并排（**不是**第二个窗口 —— 见 secondaryPanel.ts）。
@@ -608,6 +747,7 @@ function onVisibilityChange(): void {
       >
         <NoteEditor
           v-if="ready"
+          ref="mainEditor"
           panel="main"
           :font-size="fontSize"
           :line-height-ratio="lineHeightRatio"
@@ -656,6 +796,7 @@ function onVisibilityChange(): void {
 
         <NoteEditor
           v-if="secondaryReady"
+          ref="secondaryEditor"
           panel="secondary"
           :font-size="fontSize"
           :line-height-ratio="lineHeightRatio"

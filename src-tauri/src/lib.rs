@@ -20,6 +20,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::notes::save_notes,
             commands::autostart::set_autostart,
             commands::hotkey::set_hotkey,
+            commands::backup::export_notes_backup,
+            commands::backup::import_notes_backup,
             infra::logging::log_msg,
             infra::logging::get_log_level,
             infra::logging::set_log_level,
@@ -158,6 +160,8 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir)?;
             app.manage(infra::store::NotesStores::new(&data_dir));
             app.manage(commands::hotkey::HotkeyHeld::default());
+            // 原生文件对话框：只服务笔记备份的导出/导入选路径（Rust 侧用，capabilities 无需授权）
+            app.handle().plugin(tauri_plugin_dialog::init())?;
 
             // 托盘常驻：无边框窗口没有系统按钮，托盘是「显示 / 退出」的兜底出口。
             // 左键单击切换显示/隐藏；右键菜单：显示 / 退出。

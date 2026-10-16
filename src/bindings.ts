@@ -18,6 +18,17 @@ export const commands = {
 	setAutostart: (on: boolean) => __TAURI_INVOKE<boolean>("set_autostart", { on }),
 	/**  设置面板的 F9 开关（前端按偏好调用）：把意图落到系统上，并回读实际状态。 */
 	setHotkey: (on: boolean) => __TAURI_INVOKE<boolean>("set_hotkey", { on }),
+	/**
+	 *  导出：把前端传来的两份笔记打包成 zip，返回落盘路径；用户取消时返回 None。
+	 * 
+	 *  笔记内容由**前端传入**（它是唯一事实源）：前端会先 `flushNow()`，所以盘上与导出内容一致。
+	 */
+	exportNotesBackup: (main: string[], secondary: string[]) => __TAURI_INVOKE<string | null>("export_notes_backup", { main, secondary }),
+	/**  导入：选 zip 并解出两份笔记返回给前端（**不落盘** —— 由前端确认后写入）。 */
+	importNotesBackup: () => __TAURI_INVOKE<{
+	main: string[],
+	secondary: string[],
+} | null>("import_notes_backup"),
 	/**  前端上报日志：经全局级别过滤，被过滤的日志不落盘（前端有本地缓存预判）。 */
 	logMsg: (level: string, message: string) => __TAURI_INVOKE<void>("log_msg", { level, message }),
 	/**  查询当前全局最低日志级别（小写字符串，供前端启动时同步缓存）。 */
@@ -32,6 +43,12 @@ export const events = {
 };
 
 /* Types */
+/**  导入时返回给前端的两份笔记（顺序固定：主、次级） */
+export type BackupNotes = {
+	main: string[],
+	secondary: string[],
+};
+
 /**  日志级别变更事件（payload 为新级别小写字符串），前端监听后刷新本地缓存。 */
 export type LogLevelChanged = string;
 

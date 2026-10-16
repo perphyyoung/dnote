@@ -96,6 +96,14 @@ function dataDirFor(workerIndex: number, seq: number): string {
   return path.join(TEMP, `e2e-w${workerIndex}-${seq}`);
 }
 
+/// 笔记备份包的落点（`DNOTE_BACKUP_PATH` 指向它）：用例用它断言落盘、删掉它造失败路径
+const BACKUP_FILE = "e2e-backup.zip";
+
+/// 备份包路径（与 launchApp 注入的 seam 同一个）
+export function backupPath(app: AppHandle): string {
+  return path.join(app.dataDir, BACKUP_FILE);
+}
+
 /// spawn 一个应用实例、连上 CDP、拿到就绪的主窗口页面。
 /// `DNOTE_DATA_DIR` 只重定向数据目录；单实例只在 release 注册，debug（e2e / dev）不抢锁，
 /// 所以多个 e2e 实例能并行（dev 之间则由 vite 的 1420 端口拦住，不需要额外机制）。
@@ -121,6 +129,9 @@ async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
     // WebView2 profile 按 worker 复用（worker 内文件是顺序跑的，不会同时开两个实例）
     WEBVIEW2_USER_DATA_FOLDER: path.join(TEMP, `wv2-w${workerIndex}`),
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${cdpPort}`,
+    // 笔记备份的文件对话框 seam：指向实例数据目录里的一个 zip —— 导出写它、导入读它，
+    // 于是「选路径」这一步不会弹系统对话框（Playwright 点不到原生对话框）。
+    DNOTE_BACKUP_PATH: path.join(dataDir, BACKUP_FILE),
   };
   // 数据目录先建出来：窗口状态的保存可能早于第一次落笔（它写的就是这个目录里的那个文件）
   fs.mkdirSync(dataDir, { recursive: true });

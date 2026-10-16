@@ -34,9 +34,10 @@
 裁掉（相比 cdown）：
 
 - 一切 id / `sort_order` / 时间戳 / 领域模型结构体 → 存储就是那份文本本身（见 §5）。
-- `ConfirmDialog.vue` → 一行文本不值得二次确认：删除就是原生的退格 / `Delete`，直接生效（文本编辑可用 `Ctrl+Z` 撤销）。
+- `ConfirmDialog.vue` → 一行文本不值得二次确认：删除就是原生的退格 / `Delete`，直接生效（文本编辑可用 `Ctrl+Z` 撤销）。**例外**：笔记备份的导入是替换语义、必须确认，用**内联的自绘确认框**（仍不引入独立组件，见 `design.md`「删除与确认」）。
 - 损坏文件备份与回落（`*.json.bak`、`migrate_*`）→ 纯文本没有「解析失败」这一说。
-- `tauri-plugin-dialog`、导入导出、`@vuepic/vue-datepicker`、`settings` / `date-picker` 第二窗口、`tauri-plugin-autostart`。
+- `@vuepic/vue-datepicker`、`settings` / `date-picker` 第二窗口。
+- 原先还裁掉了 `tauri-plugin-dialog` 与「导入导出」；后来按需求加了**全量笔记备份**（导出 / 导入 zip），这两项随之恢复（决策与理由见本文「已确认的取舍」最后一条、`开发经验.md` §4.17）。
 - asset protocol / `protocol-asset` 特性；`vue-router`、pinia、rusqlite、`ColumnWidths` 之类可选持久化字段。
 
 新增（桌面相关，抄 cdown）：
@@ -162,7 +163,7 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 
 - `tauri.conf.json`：`productName: "dnote"`、`version: "../package.json"`、`identifier: "com.dnote.perphyyoung"`、`removeUnusedCommands: true`、`bundle.targets: ["nsis"]`、`build.windows.staticVCRuntime: true`；CSP/devCsp 抄 cdown（去掉 `asset:` 相关指令，`devCsp` 放开 `ws://localhost:1420`）。
 - `capabilities/default.json`（按实际调用逐条开，`windows: ["main"]`）：`core:window:allow-start-dragging`、`core:window:allow-hide`、`core:window:allow-set-always-on-top`、`core:window:allow-inner-size`、`core:window:allow-scale-factor`、`core:window:allow-set-size`、`core:window:allow-set-min-size`、`core:event:allow-listen`、`core:event:allow-unlisten`（后四条给次级面板开关时加减窗口宽度用）；托盘/单实例/窗口状态全在 Rust 侧操作，无需前端权限。
-- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）、`DNOTE_NO_TRAY`（存在且非空则不建托盘图标，e2e 的 `launchApp` 会注入；窗口与任务栏图标照旧）、`DNOTE_WINDOW_STATE`（窗口状态文件：只给名字时相对 app_config_dir，绝对路径则直接用；e2e 注入实例数据目录里的那份，避免与 dev 共用 —— 理由见 §10.16）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
+- 环境变量前缀 `DNOTE_`：`DNOTE_EXPORT_BINDINGS`（导出即退）、`DNOTE_LOG`（覆盖日志级别）、`DNOTE_DATA_DIR`（数据目录重定向，为 e2e 隔离预留）、`DNOTE_NO_TRAY`（存在且非空则不建托盘图标，e2e 的 `launchApp` 会注入；窗口与任务栏图标照旧）、`DNOTE_WINDOW_STATE`（窗口状态文件：只给名字时相对 app_config_dir，绝对路径则直接用；e2e 注入实例数据目录里的那份，避免与 dev 共用 —— 理由见 §10.16）、`DNOTE_BACKUP_PATH`（存在且非空则**跳过笔记备份的文件对话框**、直接读写该路径；e2e 注入实例数据目录里的一个 zip）。保留 `VITE_PORT`、`TAURI_DEV_HOST` 官方变量。
 - vite：端口 `1420` + `strictPort`、`@` → `src`、`define.__APP_VERSION__`、`server.watch.ignored` 用**白名单**（仅 `index.html` + `src/` + `public/`，抄 cdown/paim）。
 - `.gitignore`：根放 `dnote-data*/`、`temp/`、`tmp-*`、`target/`、`node_modules/`、`dist/`、`*.log`；`src-tauri/.gitignore` 放 `/target/`、`/gen/schemas`。`Cargo.lock` 与 `src/bindings.ts` **入库**。
 - 图标：`scripts/gen-icon.mjs` 自研生成（风格抄 cdown 同名脚本）——1024×1024 深色圆角方块 + 三行笔记 + 一行被拖起的红行与 2×3 把手，内容就是「draggable note」；用法 `node scripts/gen-icon.mjs && pnpm tauri icon app-icon.png`，产物 `icon.png` 同时拷成 `public/icon.png` 作 favicon。`app-icon.png` 是可再生的中间产物，不入库。
@@ -208,3 +209,4 @@ Rust 依赖方向（同 cdown）：`commands(2) → infra(1) → domain(0)`；`d
 21. **「清除连续空行」永远作用于整篇**（右键菜单最下方一项）：连续 ≥2 个空行各压成一个、留段内第一行原样 —— 文首 / 文末也留一个，段落间距不至于贴死；**不是**把空行段整个删掉。与上面两项"按选区动态"的差别是有意的：清理排版是文档级动作，只清一半会剩下更奇怪的半截。**「空行」= 内容全是空白字符的行**（纯空格 / 制表符也算 —— 缩进用的空白行不该被当成两段的分界）；没有可压的就**什么都不做**（不写盘、不进撤销栈、光标也不动）。
 22. **托盘左键的判定与热键不同源**：托盘左键 = 正看着就收回、否则**一次就唤到前台并聚焦**。判据是「最近一次失焦的时刻」（≤1s，`TRAY_FRONT_GRACE`），**不是焦点本身** —— 点托盘会先夺焦（实测 `Down` / `Up` 两个时刻 `is_focused()` 都已是 `false`），照搬热键那套会让可见窗口永远收不起来；而旧实现"只看可见性"又会让"可见但被别的窗口压住"的那次点击变成收起（用户得连点两次，就是最初报的 bug）。热键 `F9` 仍用焦点判定（按键不夺焦）。两条故意不同源，不合并成一个函数。
 23. **主窗口占任务栏与 Alt+Tab**（`skipTaskbar: false`）：用户要「用键盘切回来」，任务栏按钮也就跟着回来了。它同时意味着窗口重新成为 Show Desktop 的目标 —— 这条风险不靠猜：**e2e `16`** 按 `Win+D` 两次，断言整机确实被显示桌面（最小化窗口数变大）、窗口跟着最小化、**再按一次窗口自己回来且几何逐像素一致**，命中即红。实测（本机、debug 构建）：`Win+D` 前后都是 376×459 @26,26。
+24. **加了「全量笔记备份」**（设置面板一行：导出 / 导入两块面板的笔记 zip）。三条取舍：① **打包 / 解包放 Rust 侧**（`tauri-plugin-dialog` 的 Rust API + `zip`），前端因此**一条新权限都不用开**，也让 e2e 能靠 `DNOTE_BACKUP_PATH` 绕开原生对话框；② **命令不落盘**：导入只解包并把两份文本返回，前端二次确认后才写（前端那份文本才是唯一事实源）；③ 包内文本用 `store` 同一套逐行编码，保证「导出再导入」与原件等价。**只含笔记**，不含字号 / 颜色 / 热键这些偏好。
