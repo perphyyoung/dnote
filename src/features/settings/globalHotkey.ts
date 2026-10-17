@@ -50,8 +50,10 @@ export async function applyGlobalHotkey(): Promise<void> {
   try {
     const actual = await commands.setHotkey(globalHotkey.value);
     if (actual !== globalHotkey.value) {
-      // 只记日志、不动偏好：用户意图仍然有效，下次启动再试
-      log.warn("[hotkey] 系统实际状态与偏好不一致：偏好", globalHotkey.value, "实际", actual);
+      // 只记日志、不动偏好：用户意图仍然有效，下次启动再试。
+      // 记 **debug** 级：dev 与 release 同机时 F9 被 release 占着是常态（根因在 Rust 侧，
+      // 那边 release 构建会记 warn）；这里只是对结果的复述，不该在 dev 里冒 warn。
+      log.debug("[hotkey] 系统实际状态与偏好不一致：偏好", globalHotkey.value, "实际", actual);
     }
   } catch (e) {
     log.error("[hotkey] 启动应用失败", String(e));

@@ -8,7 +8,9 @@
 //!
 //! 两条从 cdown 抄来的经验：
 //! - **键位不在插件构建期注册**（构建期注册失败会让启动直接失败），而在运行期按偏好注册；
-//!   失败只记日志、不影响启动 —— 键可能被别的程序或另一个实例占着。
+//!   失败只记日志、不影响启动 —— 键可能被别的程序或另一个实例占着。**debug 构建里"抢不到"
+//!   是预期**（dev 与常驻的 release 同机时，F9 总在 release 手里），所以只记 debug 级；
+//!   release 里同样的失败才当 warn（那多半是别的程序抢了这个键）。
 //! - 长按会连发 `Pressed`，必须靠 `HotkeyHeld` 过滤成「松手后的新一次按下」，否则窗口疯狂开合。
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -68,14 +70,26 @@ fn apply(app: &AppHandle, on: bool) -> bool {
                 true
             }
             Err(e) => {
-                crate::log_warn!("全局热键 {HOTKEY} 注册失败（可能已被占用）：{e}");
+                // dev 与 release 同机时，F9 总在常驻的 release 手里 —— 这是预期，不当作警告：
+                // 默认 info 级别下这条不落盘，DNOTE_LOG=debug 才看得到。
+                if cfg!(debug_assertions) {
+                    crate::log_debug!(
+                        "全局热键 {HOTKEY} 注册失败（dev 下常见：release 实例正占着）：{e}"
+                    );
+                } else {
+                    crate::log_warn!("全局热键 {HOTKEY} 注册失败（可能已被占用）：{e}");
+                }
                 false
             }
         };
     }
     // 注销：本就未注册也算成功 —— 语义是「让它不处于注册状态」，幂等
     if let Err(e) = app.global_shortcut().unregister(shortcut) {
-        crate::log_warn!("全局热键 {HOTKEY} 注销未生效（可能本就未注册）：{e}");
+        if cfg!(debug_assertions) {
+            crate::log_debug!("全局热键 {HOTKEY} 注销未生效（可能本就未注册）：{e}");
+        } else {
+            crate::log_warn!("全局热键 {HOTKEY} 注销未生效（可能本就未注册）：{e}");
+        }
     }
     if let Some(held) = app.try_state::<HotkeyHeld>() {
         held.release();
