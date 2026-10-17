@@ -479,6 +479,19 @@ test.describe("设置面板", () => {
     const confirm = page.getByRole("alertdialog", { name: "导入确认" });
     await page.getByRole("button", { name: "导入笔记备份" }).click();
     await expect(confirm, "导入前必须二次确认").toBeVisible();
+
+    // 模态必须压住那颗"切换次级面板"的圆把手：它自己 z-40（有意在设置/帮助面板之上），
+    // 所以确认框不能只跟面板同档 —— 判据是"点把手中心时命中的是谁"，不认 class、不钉 z 数值
+    const handleBox = (await page.getByRole("button", { name: "次级面板" }).boundingBox())!;
+    const overHandle = await page.evaluate(
+      ({ x, y }) => {
+        const el = document.elementFromPoint(x, y);
+        return el !== null && el.closest('[aria-label="次级面板"]') !== null;
+      },
+      { x: handleBox.x + handleBox.width / 2, y: handleBox.y + handleBox.height / 2 },
+    );
+    expect(overHandle, "确认框必须压住切换按钮（按钮 z 低于对话框）").toBe(false);
+
     await page.getByRole("button", { name: "取消导入" }).click();
     await expect(confirm).toHaveCount(0);
     expect(await panelEditor(page).inputValue()).toBe("被改乱的主面板");

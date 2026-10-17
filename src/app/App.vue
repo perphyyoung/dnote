@@ -698,10 +698,11 @@ function onVisibilityChange(): void {
     </div>
 
     <!-- 导入确认（破坏性操作，必须二次确认）：自绘 —— `design.md` 明写原生 `window.confirm`
-         在 WebView2 下不生效。层级取项目已有的最高档 `z-40`，盖住设置/帮助浮层。 -->
+         在 WebView2 下不生效。层级取 `z-50`：模态要压住**所有**常规层，尤其是次级面板那颗
+         圆把手（`z-40`，它有意在设置/帮助面板 `z-30` 之上）；仍是五档，见 design.md「叠层」。 -->
     <div
       v-if="pendingImport !== null"
-      class="absolute inset-0 z-40 flex items-center justify-center bg-black/40"
+      class="absolute inset-0 z-50 flex items-center justify-center bg-black/40"
       @pointerdown.self="pendingImport = null"
     >
       <div
