@@ -112,9 +112,19 @@ test.describe("当前行的行内操作", () => {
 
     await withClipboard(async () => {
       setClipboard("预置内容"); // 先写点别的，证明剪贴板确实被这一行覆盖了
-      await page.getByRole("button", { name: "复制当前行" }).click();
+      const copy = page.getByRole("button", { name: "复制当前行" });
+      await copy.click();
+      // 原地反馈：按钮短暂进入"已复制"态（换图标、不改尺寸），1.2s 后自动复原
+      await expect(copy).toHaveAttribute("data-copy-state", "ok");
+      // 对勾是**绿色**：判据用"绿通道高于红/蓝"，不钉具体色值（调色板与主题都可能调）
+      const okColor = await copy.locator("svg").evaluate((el) => getComputedStyle(el).color);
+      const [r = 0, g = 0, b = 0] = (okColor.match(/[\d.]+/g) ?? []).map(Number);
+      e2eLog.info(`[row-actions] 复制成功图标颜色 ${okColor}`);
+      expect(g, "对勾应为绿色").toBeGreaterThan(r);
+      expect(g).toBeGreaterThan(b);
       // 剪贴板是异步写的，轮询到内容变成本行为止
       await expect.poll(() => readClipboard(), { timeout: 3_000 }).toBe("第二行");
+      await expect(copy).not.toHaveAttribute("data-copy-state", "ok", { timeout: 3_000 });
     });
 
     expect(await editorText(page)).toBe(LINES.join("\n"));

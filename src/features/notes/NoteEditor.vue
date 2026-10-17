@@ -211,6 +211,7 @@ onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
+  if (copyTimer !== null) clearTimeout(copyTimer);
   document.body.classList.remove("dragging");
 });
 
@@ -499,27 +500,66 @@ function collapseAllBlankLines(): void {
  * （快捷键不管复制 —— 那是浏览器原生的 `Ctrl+C`，见 `design.md` 选择与复制）。
  * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中这几行 + execCommand("copy")」
  * 并把原选区还回去 —— 两条路都留着，避免环境差异变成静默失败。
+ * **返回是否真的复制成功**：行内按钮据此给对勾 / 叉（见 `copyFeedback`）。
  */
-async function copyLines(first: number, last: number): Promise<void> {
+async function copyLines(first: number, last: number): Promise<boolean> {
   const el = editor.value;
-  if (!el || first < 0 || last >= lines.value.length) return;
+  if (!el || first < 0 || last >= lines.value.length) return false;
   const text = lines.value.slice(first, last + 1).join("\n");
+  let ok: boolean;
   try {
     await navigator.clipboard.writeText(text);
+    ok = true;
   } catch (e) {
     const start = lineRange(el.value, first).start;
     const end = lineRange(el.value, last).end;
     const restore = el.selectionStart;
     el.setSelectionRange(start, end);
-    document.execCommand("copy");
+    ok = document.execCommand("copy");
     el.setSelectionRange(restore, restore);
-    log.warn(`[notes] 剪贴板 API 不可用，已回落 execCommand：${String(e)}`);
+    log.warn(
+      `[notes] 剪贴板 API 不可用，已回落 execCommand（${ok ? "成功" : "失败"}）：${String(e)}`,
+    );
+  }
+  if (!ok) {
+    log.error("[notes] 复制失败：两条剪贴板路径都没成");
+    return false;
   }
   log.info(
     first === last
       ? `[notes] 已复制第 ${first + 1} 行`
       : `[notes] 已复制第 ${first + 1}–${last + 1} 行`,
   );
+  return true;
+}
+
+/**
+ * 复制的**原地短反馈**（1.2s）：按钮图标临时换成对勾 / 叉，尺寸与位置都不变 ——
+ * 不新增浮层（行尾已经够挤，见 `design.md`「行内操作」的已知代价）。
+ * 反馈绑在「发起时那一行」上：换行后 `copyState` 自然变 null，不会把对勾留在别的行。
+ */
+const copyFeedback = ref<{ line: number; ok: boolean } | null>(null);
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
+
+const copyState = computed<"ok" | "fail" | null>(() => {
+  const feedback = copyFeedback.value;
+  if (feedback === null || feedback.line !== currentLine.value) return null;
+  return feedback.ok ? "ok" : "fail";
+});
+
+function flashCopyFeedback(line: number, ok: boolean): void {
+  copyFeedback.value = { line, ok };
+  if (copyTimer !== null) clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    copyTimer = null;
+    copyFeedback.value = null;
+  }, 1_200);
+}
+
+/// 行内「复制当前行」：先写剪贴板，再把结果反馈到按钮上
+async function copyCurrentLine(): Promise<void> {
+  const line = currentLine.value;
+  flashCopyFeedback(line, await copyLines(line, line));
 }
 
 // ── 右键菜单：复制 / 删除（多行时作用于整个选区）────────────────────────────────
@@ -833,10 +873,46 @@ function flashDropped(index: number): void {
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
           aria-label="复制当前行"
           title="复制当前行"
+          :data-copy-state="copyState ?? undefined"
           @mousedown.prevent
-          @click="copyLines(currentLine, currentLine)"
+          @click="copyCurrentLine()"
         >
+          <!-- 成功 → 绿色对勾（emerald-600：与设置面板开关同一档，浅色底上也看得清）；
+               失败 → 叉（rose-500，与删除 hover 同一支红色）。颜色只挂在图标上，
+               避开与按钮底色 / 描边那两族 utility 抢同一属性。 -->
           <svg
+            v-if="copyState === 'ok'"
+            class="text-emerald-600"
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          <svg
+            v-else-if="copyState === 'fail'"
+            class="text-rose-500"
+            xmlns="http://www.w3.org/2000/svg"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M18 6 6 18" />
+            <path d="m6 6 12 12" />
+          </svg>
+          <svg
+            v-else
             xmlns="http://www.w3.org/2000/svg"
             width="13"
             height="13"
@@ -851,6 +927,10 @@ function flashDropped(index: number): void {
             <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
           </svg>
         </button>
+        <!-- 屏幕阅读器播报（按钮的 `aria-label` 保持不变：语义定位与语音控制都靠它） -->
+        <span class="sr-only" aria-live="polite">
+          {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
+        </span>
         <button
           type="button"
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-rose-500 hover:ring-[var(--note-fg-faint)]"
