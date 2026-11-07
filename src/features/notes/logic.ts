@@ -208,11 +208,13 @@ export function moveLines<T>(
  * 返回 `null` = 没有可压的：调用方据此**不写盘、不进撤销栈**，连光标都不动。
  * `caret` 按**内容**锚定：原光标行留着 → 落到它的新行号（列不变，越界由 `caretOffset` 钳制）；
  * 它属于被压掉的那些空行 → 落到这一段留下来的那个空行上（列自然变成 0）。
+ * `moved` = 旧行号 → 新行号（函数内部本来就要算）：供行颜色这类按行号存的旁路状态
+ * 一起搬位，调用方不必再反推文本差异。
  */
 export function collapseBlankLines(
   text: string,
   caret: number,
-): { text: string; caret: number } | null {
+): { text: string; caret: number; moved: number[] } | null {
   const lines = text.split("\n");
   const at = caretLine(text, caret);
   const kept: string[] = [];
@@ -233,5 +235,9 @@ export function collapseBlankLines(
 
   if (!collapsed) return null;
   const next = kept.join("\n");
-  return { text: next, caret: caretOffset(next, moved[at.index] ?? 0, at.column) };
+  return {
+    text: next,
+    caret: caretOffset(next, moved[at.index] ?? 0, at.column),
+    moved,
+  };
 }

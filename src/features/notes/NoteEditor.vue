@@ -12,10 +12,18 @@ import {
   lineRange,
   moveIndexAfter,
   moveItem,
+  menuPosition,
   moveLines,
   selectionLines,
 } from "@/features/notes/logic";
 import ContextMenu from "@/features/notes/ContextMenu.vue";
+import {
+  LINE_COLORS,
+  remapColors,
+  spliceColors,
+  useLineColors,
+  type LineColor,
+} from "@/features/settings/lineColors";
 import type { Panel } from "@/features/notes/useNotes";
 import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
@@ -305,7 +313,12 @@ function onHandleUp(): void {
   // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
   // 于是**拖拽也能 Ctrl+Z 撤回**，光标也由它一次设到位。
   const caretAfter = caretOffset(text, anchored, caret.column);
-  applyEdit(text, { start: caretAfter, end: caretAfter }, from);
+  applyEdit(
+    text,
+    { start: caretAfter, end: caretAfter },
+    from,
+    moveItem(paddedColors(), d.originIndex, to),
+  );
   flashDropped(to);
 }
 
@@ -361,24 +374,73 @@ let structural: {
   targetBefore: { start: number; end: number };
   /// 编辑后的落点：重做时**原样**恢复 —— 多行快捷键的选区因此能跟着块平移（见 `moveCurrentLine`）
   targetAfter: { start: number; end: number };
+  /// 颜色也在这一笔里：撤销时恢复 `colorsBefore`，重放时恢复 `colorsAfter`
+  /// （颜色是 localStorage 的旁路状态，浏览器撤销栈不会替我们带回来）
+  colorsBefore: LineColor[];
+  colorsAfter: LineColor[];
   state: "applied" | "undone";
   depth: number;
 } | null = null;
 
+// ── 行颜色：左侧强调条 + 行内操作条里的色板 ───────────────────────────────────
+const lineColors = useLineColors(props.panel);
+/// 色板对哪一行开着（null = 关）；位置在开的时候按按钮实测一次（fixed 浮层，不受滚动裁剪）
+const paletteFor = ref<number | null>(null);
+const palettePos = ref({ x: 0, y: 0 });
+/// 有颜色的行：按实测行盒画强调条（几何一律读镜像，与当前行高亮同一套）
+const coloredBars = computed(() =>
+  lines.value.flatMap((_, index) => {
+    const color = lineColors.colorAt(index);
+    return color === null ? [] : [{ index, color }];
+  }),
+);
+/// 结构性编辑已经自己搬过颜色了，别让随之而来的 `input` 再搬一次
+let skipColorReconcile = false;
+
+/// 把颜色数组补齐到当前行数，才能交给 `moveItem` / `moveLines` 做和正文同一套置换
+function paddedColors(): (string | null)[] {
+  return Array.from({ length: lines.value.length }, (_, i) => lineColors.colorAt(i));
+}
+
+const PALETTE_W = 5 * 20 + 4 * 4 + 16; // 5 列 × 20px + 4 道缝 + 两侧内边距
+const PALETTE_H = 2 * 20 + 4 + 16;
+
+function openPalette(e: MouseEvent, index: number): void {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  palettePos.value = menuPosition(
+    rect.left,
+    rect.bottom + 4,
+    PALETTE_W,
+    PALETTE_H,
+    window.innerWidth,
+    window.innerHeight,
+  );
+  paletteFor.value = index;
+}
+
+function pickLineColor(color: string | null): void {
+  if (paletteFor.value !== null) lineColors.set(paletteFor.value, color);
+  paletteFor.value = null;
+}
+
 /** 所有输入（含原生撤销 / 重做）都从这里进：更新内容，顺带修正撤销带出来的选区 */
 function onInput(e: Event): void {
   closeContextMenu(); // 内容变了：菜单作用于旧选区，留着只会点错
+  paletteFor.value = null; // 色板也作用于旧行号，别留着点错
   const el = e.target as HTMLTextAreaElement;
   const inputType = (e as InputEvent).inputType;
+  let restoredColors = false;
   if (inputType === "historyUndo" || inputType === "historyRedo") {
     const caret = Math.min(preEditCaret ?? el.selectionStart, el.value.length);
     preEditCaret = null;
     el.setSelectionRange(caret, caret);
     if (inputType === "historyUndo") {
       if (structural?.state === "applied") {
-        // 撤销掉的正是我们那一笔：它的重做由我们接管
+        // 撤销掉的正是我们那一笔：它的重做由我们接管，颜色也一并回到编辑前
         structural.state = "undone";
         structural.depth = 0;
+        lineColors.replace(structural.colorsBefore);
+        restoredColors = true;
       } else if (structural?.state === "undone") {
         structural.depth += 1; // 又撤了一笔别的：我们那一笔在重做栈里更深了
       }
@@ -390,6 +452,13 @@ function onInput(e: Event): void {
   } else {
     preEditCaret = null; // 用户又打字了，上一次结构性编辑的位置不再适用
     structural = null; // 且已经离开这条撤销历史
+  }
+  // 原生编辑按"编辑前后行文本的共同前缀 + 行数变化"整体平移颜色（不猜光标位置）。
+  // 两种跳过：① 结构性编辑自己搬过颜色（见 applyEdit）；② 撤销刚刚恢复了颜色快照。
+  if (skipColorReconcile) {
+    skipColorReconcile = false;
+  } else if (!restoredColors) {
+    lineColors.shift(lines.value, el.value.split("\n"));
   }
   setContent(el.value);
 }
@@ -408,6 +477,12 @@ function onKeydown(e: KeyboardEvent): void {
     closeContextMenu();
     return;
   }
+  if (e.code === "Escape" && paletteFor.value !== null) {
+    e.preventDefault();
+    e.stopPropagation(); // 别顺手把设置 / 帮助浮层也收了
+    paletteFor.value = null;
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
     e.preventDefault();
     deleteCurrentLine();
@@ -422,8 +497,8 @@ function onKeydown(e: KeyboardEvent): void {
   ) {
     if (structural?.state === "undone" && structural.depth === 0) {
       e.preventDefault();
-      const { after, targetAfter, targetBefore } = structural;
-      applyEdit(after, targetAfter, targetBefore.start);
+      const { after, targetAfter, targetBefore, colorsAfter } = structural;
+      applyEdit(after, targetAfter, targetBefore.start, colorsAfter);
       log.info("[notes] 重做结构性编辑（自接管，绕开 Chromium 重做的缺陷）");
     }
     return;
@@ -467,7 +542,13 @@ function deleteLinesAt(first: number, last: number): void {
   const { start, end, caret } =
     first === last ? deleteLine(text, first) : deleteLines(text, first, last);
   if (start === end) return; // 空文档：没有可删的
-  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from);
+  // 颜色跟着这几行一起删，别串到后面的行；交给 applyEdit 记快照供撤销恢复
+  applyEdit(
+    `${text.slice(0, start)}${text.slice(end)}`,
+    { start: caret, end: caret },
+    from,
+    spliceColors(paddedColors(), first, last),
+  );
   log.info(
     first === last
       ? `[notes] 删除第 ${first + 1} 行`
@@ -491,7 +572,14 @@ function collapseAllBlankLines(): void {
   const from = el.selectionStart;
   const collapsed = collapseBlankLines(el.value, from);
   if (collapsed === null) return;
-  applyEdit(collapsed.text, { start: collapsed.caret, end: collapsed.caret }, from);
+  // 清除连续空行是整篇操作、可能有多段：`moved` 是纯函数算好的旧→新行号映射，
+  // 颜色照它重排即可（被压掉的空行归到段内留下来的那个空行），不用再猜插入点。
+  const nextColors = remapColors(
+    paddedColors(),
+    collapsed.moved,
+    collapsed.text.split("\n").length,
+  );
+  applyEdit(collapsed.text, { start: collapsed.caret, end: collapsed.caret }, from, nextColors);
   log.info("[notes] 已清除连续空行");
 }
 
@@ -617,6 +705,7 @@ function onContextMenu(e: MouseEvent): void {
 /// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）
 function onDocumentPointerDown(): void {
   closeContextMenu();
+  paletteFor.value = null; // 色板同理：点别处就收（色板自己 `@pointerdown.stop`）
 }
 
 /**
@@ -634,12 +723,19 @@ function moveCurrentLine(delta: number): void {
   if (range !== null) {
     const moved = moveLines(lines, range.first, range.last, delta);
     if (moved === null) return; // 块已顶到首行 / 底到末行
+    // 颜色按同一套置换跟着块走（颜色数组先补齐到行数，否则 moveLines 会夹错边界）
+    const nextColors = moveLines(paddedColors(), range.first, range.last, delta);
     // 块整体平移一行 = 选区按「相邻那一行 + 它的换行」平移（换行跟着那一行一起被搬走）
     const neighbour =
       delta < 0 ? lines[range.first - 1].length + 1 : lines[range.last + 1].length + 1;
     const shift = delta < 0 ? -neighbour : neighbour;
     const next = moved.join("\n");
-    applyEdit(next, { start: el.selectionStart + shift, end: el.selectionEnd + shift }, from);
+    applyEdit(
+      next,
+      { start: el.selectionStart + shift, end: el.selectionEnd + shift },
+      from,
+      nextColors ?? undefined,
+    );
     log.info(
       `[notes] 第 ${range.first + 1}–${range.last + 1} 行整块移到第 ${range.first + 1 + delta} 行`,
     );
@@ -651,7 +747,7 @@ function moveCurrentLine(delta: number): void {
   if (target < 0 || target >= lines.length) return;
   const next = moveItem(lines, index, target).join("\n");
   const caret = caretOffset(next, target, column);
-  applyEdit(next, { start: caret, end: caret }, from);
+  applyEdit(next, { start: caret, end: caret }, from, moveItem(paddedColors(), index, target));
   log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);
 }
 
@@ -668,9 +764,20 @@ function moveCurrentLine(delta: number): void {
  * `moveCurrentLine`）；`from` 是编辑前光标的位置 —— 撤销会连「编辑前的选区」一起恢复
  * （而我们是全选后替换，于是撤销后整篇被选中），届时用它把光标放回原处并取消选区（见 `onInput`）。
  */
-function applyEdit(text: string, target: { start: number; end: number }, from: number): void {
+function applyEdit(
+  text: string,
+  target: { start: number; end: number },
+  from: number,
+  nextColors?: LineColor[],
+): void {
   const el = editor.value;
   if (!el) return;
+  // 颜色快照在搬色**之前**取：撤销 / 重放时把这份旁路状态一起带回来
+  const colorsBefore = lineColors.colors.value.slice();
+  if (nextColors !== undefined) lineColors.replace(nextColors);
+  const colorsAfter = lineColors.colors.value.slice();
+  // 结构性编辑已经自己搬过颜色：execCommand 同步派发的那次 input 别再平移一次
+  skipColorReconcile = true;
   // 键盘路径本来就在焦点里；鼠标拖拽可能没有（用户可能一直没点进编辑器），而 execCommand
   // 只作用于聚焦元素 —— 先聚焦，顺带让拖完的光标看得见。
   el.focus();
@@ -679,6 +786,7 @@ function applyEdit(text: string, target: { start: number; end: number }, from: n
     el.value = text; // 先落到 DOM，保证下面设置光标时作用在新文本上
     setContent(text);
   }
+  skipColorReconcile = false; // 回落路径不派发 input，兜底清掉
   el.setSelectionRange(target.start, target.end);
   preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
   // 记下这一笔「编辑后」的样子：用户撤销后再重做时，就按它重放一次（缘由见 `structural` 的注释）。
@@ -687,6 +795,8 @@ function applyEdit(text: string, target: { start: number; end: number }, from: n
     after: text,
     targetBefore: { start: from, end: from },
     targetAfter: target,
+    colorsBefore,
+    colorsAfter,
     state: "applied",
     depth: 0,
   };
@@ -780,6 +890,19 @@ function flashDropped(index: number): void {
           height: `${boxHeight(caretIndex)}px`,
         }"
       />
+      <!-- 行颜色：左侧 2px 强调条，按实测行盒绘制（折行时铺满整块）。画在"当前行"之后，
+           于是当前行既被标记过颜色时看到的是**那个颜色**，当前行的极淡底色照旧在。 -->
+      <div
+        v-for="bar in coloredBars"
+        :key="bar.index"
+        class="absolute border-l-2"
+        :data-line-color="bar.index"
+        :style="{
+          borderColor: bar.color,
+          top: `${boxTop(bar.index)}px`,
+          height: `${boxHeight(bar.index)}px`,
+        }"
+      />
     </div>
 
     <!-- 行手柄层 / 行操作按钮层 / 源行罩 / 落点闪：压在文字**之上**（按钮要可点）。
@@ -868,6 +991,22 @@ function flashDropped(index: number): void {
           height: `${ROW_H}px`,
         }"
       >
+        <!-- 行颜色：与复制 / 删除同一条浮条，点它开色板（作用在**当前行**，不跟随悬停行） -->
+        <button
+          type="button"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
+          aria-label="行颜色"
+          title="行颜色"
+          aria-haspopup="dialog"
+          :aria-expanded="paletteFor === currentLine"
+          @mousedown.prevent
+          @click="openPalette($event, currentLine)"
+        >
+          <span
+            class="h-2.5 w-2.5 rounded-full ring-1 ring-[var(--note-fg-faint)]"
+            :style="{ backgroundColor: lineColors.colorAt(currentLine) ?? 'transparent' }"
+          />
+        </button>
         <button
           type="button"
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
@@ -1067,5 +1206,37 @@ function flashDropped(index: number): void {
 
   <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），
        菜单项与动作全由这里组装 —— 只有这里知道选区覆盖哪几行。 -->
+  <!-- 行颜色色板：fixed 浮层（不受 scroller 的滚动裁剪），层级 z-40 与右键菜单同档。
+       第一项「默认」= 清掉这一行的颜色；选完即关，点别处 / Esc 也关。 -->
+  <div
+    v-if="paletteFor !== null"
+    class="fixed z-40 grid grid-cols-5 gap-1 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+    :style="{ left: `${palettePos.x}px`, top: `${palettePos.y}px` }"
+    role="dialog"
+    aria-label="行颜色"
+    @pointerdown.stop
+  >
+    <button
+      v-for="item in LINE_COLORS"
+      :key="item.label"
+      type="button"
+      class="flex h-5 w-5 items-center justify-center rounded ring-1"
+      :class="
+        lineColors.colorAt(paletteFor) === item.value ? 'ring-[var(--note-fg)]' : 'ring-transparent'
+      "
+      :aria-label="item.label"
+      :title="item.label"
+      @mousedown.prevent
+      @click="pickLineColor(item.value)"
+    >
+      <span
+        class="h-3 w-3 rounded-full"
+        :style="{
+          backgroundColor: item.value === null ? 'var(--note-fg-faint)' : item.value,
+        }"
+      />
+    </button>
+  </div>
+
   <ContextMenu v-if="contextMenu" :x="contextMenu.x" :y="contextMenu.y" :items="menuItems" />
 </template>

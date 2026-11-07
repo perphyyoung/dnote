@@ -322,6 +322,17 @@ export async function hoverRow(page: Page, line: number): Promise<void> {
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 }
 
+/// 在第 line 行右键（`15` 的右键菜单与 `17` 的清除连续空行共用）。
+/// 坐标 = 行手柄的竖直中点 + 文本区左侧 `dx` 像素：**必须落在 textarea 上** ——
+/// 落在左侧手柄或容器空白区时，`contextmenu` 到不了编辑器的监听；手柄虽 `opacity-0`，
+/// 未悬停时照样有 `boundingBox`，所以不必先 hover。
+export async function rightClickLine(page: Page, line: number, dx = 60): Promise<void> {
+  const handle = await page.getByRole("button", { name: "拖拽调整顺序" }).nth(line).boundingBox();
+  const box = await editor(page).boundingBox();
+  if (!handle || !box) throw new Error("取不到行手柄 / 编辑器位置");
+  await page.mouse.click(box.x + dx, handle.y + handle.height / 2, { button: "right" });
+}
+
 /// 选区起止 offset（没有选区时两者相等）：断言「撤销后不会全选」这类问题用
 export function selection(page: Page): Promise<{ start: number; end: number }> {
   return editor(page).evaluate((el) => {

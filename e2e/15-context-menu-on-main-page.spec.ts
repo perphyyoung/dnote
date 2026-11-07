@@ -17,6 +17,7 @@ import {
   expectPersistedLines,
   notesFile,
   readClipboard,
+  rightClickLine,
   seedLines,
   selection,
   setClipboard,
@@ -30,20 +31,6 @@ const LINES = ["第一行", "第二行", "第三行", "第四行"];
 const editor = (page: Page) => page.getByRole("textbox", { name: "笔记内容" });
 const menu = (page: Page) => page.getByRole("menu", { name: "笔记操作" });
 const item = (page: Page, label: string) => page.getByRole("menuitem", { name: label });
-
-/**
- * 在第 line 行右键。
- *
- * 坐标 = 「该行手柄的竖直中点」+「文本区左侧 `dx` 像素」：**必须落在 textarea 上** ——
- * 落在左侧手柄或容器空白区上时，`contextmenu` 到不了我们的监听（也就没有菜单）。
- * 手柄只在悬停时显形，但 `opacity-0` 的元素照样有 `boundingBox`，所以不必先 hover。
- */
-async function rightClickLine(page: Page, line: number, dx = 60): Promise<void> {
-  const handle = await page.getByRole("button", { name: "拖拽调整顺序" }).nth(line).boundingBox();
-  const box = await editor(page).boundingBox();
-  if (!handle || !box) throw new Error("取不到行手柄 / 编辑器位置");
-  await page.mouse.click(box.x + dx, handle.y + handle.height / 2, { button: "right" });
-}
 
 test.describe("右键菜单", () => {
   // 同文件的用例共用一个实例与数据目录，每个用例先把数据复位到已知的四行

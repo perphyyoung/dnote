@@ -343,6 +343,11 @@ describe("collapseBlankLines", () => {
     expect(collapseBlankLines("第一行\n\n\n\n第二行", 0)?.text).toBe("第一行\n\n第二行");
   });
 
+  it("返回旧行号 → 新行号的映射，供按行号存的旁路状态一起搬位", () => {
+    // ["a","","","b","","c"] → ["a","","b","","c"]：被压掉的空行指向段内留下来的那一个
+    expect(collapseBlankLines("a\n\n\nb\n\nc", 0)?.moved).toEqual([0, 1, 1, 2, 3, 4]);
+  });
+
   it("纯空格 / 制表符行也算空行（缩进用的空白行不该被当成两段的分界）", () => {
     expect(collapseBlankLines("a\n  \n\t\n \nb", 0)?.text).toBe("a\n  \nb");
   });
