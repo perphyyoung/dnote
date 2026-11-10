@@ -84,6 +84,36 @@ export function insertIndexAt(
   return index >= blockLast ? index + 1 : index;
 }
 
+/**
+ * 拖拽落盘后的**落点**（textarea 的选区 `{ start, end }`）：把拖拽前的选区映射到重排后的文本。
+ *
+ * - **多行整块搬移**（`first !== last`）：选区跟着块整体平移，选中的仍是搬过去的那几行；
+ *   终点按新文本长度钳制 —— 块搬到末尾时，原来「块尾换行之后」那个位置已经不存在。
+ * - **单行 / 无选区**：收成光标，跟着「同一行内容」走、列不变（`moveIndexAfter`）——
+ *   被拖的就是当前行 → 去新位置；不是 → 留在原行（行号可能因重排位移）。
+ *
+ * `to` 与 `moveBlock` 同口径（**移除之后**的起始下标）；`start` / `end` 是拖拽前的原生选区。
+ */
+export function dropSelection(
+  before: string,
+  after: string,
+  first: number,
+  last: number,
+  to: number,
+  start: number,
+  end: number,
+): { start: number; end: number } {
+  if (first !== last) {
+    const shift = caretOffset(after, to, 0) - caretOffset(before, first, 0);
+    const from = clamp(start + shift, 0, after.length);
+    return { start: from, end: clamp(end + shift, from, after.length) };
+  }
+  const caret = caretLine(before, start);
+  const anchored = moveIndexAfter(first, to, caret.index);
+  const at = caretOffset(after, anchored, caret.column);
+  return { start: at, end: at };
+}
+
 // ── 行级编辑（应用内快捷键用）────────────────────────────────────────────────
 // 文本与光标一起算清楚：这些函数只做计算，返回值交给组件去落到 textarea（见 NoteEditor.vue）。
 

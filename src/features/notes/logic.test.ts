@@ -6,6 +6,7 @@ import {
   collapseBlankLines,
   deleteLine,
   deleteLines,
+  dropSelection,
   insertIndexAt,
   lineIndexAt,
   lineRange,
@@ -82,6 +83,61 @@ describe("moveBlock", () => {
   it("to 越界时钳制到两端", () => {
     expect(moveBlock(LIST, 1, 2, 99)).toEqual(["A", "D", "E", "B", "C"]);
     expect(moveBlock(LIST, 1, 2, -5)).toEqual(["B", "C", "A", "D", "E"]);
+  });
+});
+
+describe("dropSelection", () => {
+  // 甲..戊 五行、每行一个字：乙行首 = 2、丁行首 = 6、戊行首 = 8
+  const BEFORE = "甲\n乙\n丙\n丁\n戊";
+
+  it("多行整块下移：选区跟着块整体平移，选中文本不变", () => {
+    const after = "甲\n丁\n戊\n乙\n丙";
+    // 块 [1,2]（乙丙）搬到丁戊之后；选区从乙行首到丁行首（含块尾那个换行）
+    const target = dropSelection(BEFORE, after, 1, 2, 3, 2, 6);
+    expect(target).toEqual({ start: 6, end: 9 });
+    expect(after.slice(target.start, target.end)).toBe("乙\n丙");
+  });
+
+  it("多行整块上移：选区同样整体平移", () => {
+    const after = "丙\n丁\n甲\n乙\n戊";
+    const target = dropSelection(BEFORE, after, 2, 3, 0, 4, 8);
+    expect(target).toEqual({ start: 0, end: 4 });
+    expect(after.slice(target.start, target.end)).toBe("丙\n丁\n");
+  });
+
+  it("多行整块搬到末尾：选区终点钳制到新文本长度", () => {
+    const after = "丙\n丁\n戊\n甲\n乙";
+    // 选区终点原本落在「块尾换行之后」，搬到最后一行时那个位置已不存在 → 收到文末
+    const target = dropSelection(BEFORE, after, 0, 1, 3, 0, 4);
+    expect(target).toEqual({ start: 6, end: 9 });
+    expect(after.slice(target.start, target.end)).toBe("甲\n乙");
+  });
+
+  it("单行：光标在被拖行上时跟着它走，列不变", () => {
+    const before = "aa\nbbbb\ncc\ndd";
+    const after = "bbbb\ncc\naa\ndd";
+    // 拖第 0 行到 cc 之后；光标在 aa 行第 1 列 → 新位置是第 2 行第 1 列
+    expect(dropSelection(before, after, 0, 0, 2, 1, 1)).toEqual({ start: 9, end: 9 });
+  });
+
+  it("单行：光标在别的行时留在同一行内容上（行号跟着位移）", () => {
+    const before = "aa\nbbbb\ncc\ndd";
+    const after = "bbbb\ncc\naa\ndd";
+    // 光标在 cc 行第 1 列（9）：aa 被搬到它下面后 cc 变成第 1 行，偏移变为 6
+    expect(dropSelection(before, after, 0, 0, 2, 9, 9)).toEqual({ start: 6, end: 6 });
+  });
+
+  it("单行向上拖：光标落在被跨过的那几行时跟着内容下移", () => {
+    const before = "aa\nbbbb\ncc\ndd";
+    const after = "aa\ndd\nbbbb\ncc";
+    // 拖 dd 到第 1 行；光标在 bbbb 第 1 列（4）→ bbbb 被顶到第 2 行，偏移变为 7
+    expect(dropSelection(before, after, 3, 3, 1, 4, 4)).toEqual({ start: 7, end: 7 });
+  });
+
+  it("单行里的小段选区退化成光标（落在选区起点那一行）", () => {
+    const before = "aa\nbbbb\ncc\ndd";
+    const after = "bbbb\ncc\naa\ndd";
+    expect(dropSelection(before, after, 0, 0, 2, 0, 2)).toEqual({ start: 8, end: 8 });
   });
 });
 

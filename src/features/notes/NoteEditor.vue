@@ -7,11 +7,11 @@ import {
   collapseBlankLines,
   deleteLine,
   deleteLines,
+  dropSelection,
   insertIndexAt,
   lineIndexAt,
   lineRange,
   moveBlock,
-  moveIndexAfter,
   moveItem,
   menuPosition,
   moveLines,
@@ -347,18 +347,8 @@ function onHandleUp(): void {
   const from = el.selectionStart; // 拖拽前光标在哪：一并交给 applyEdit 作为撤销后的归位点
   const text = el.value;
   const next = moveBlock(lines.value, d.first, d.last, to).join("\n");
-  // 落点：多行整块搬移时**保留选区**并整体平移到新位置（与 `Alt+↑↓` 一致，可连续拖）；
-  // 单行（没有选区）仍让光标跟着同一行内容走、列不变。
-  let target: { start: number; end: number };
-  if (d.first !== d.last) {
-    const shift = caretOffset(next, to, 0) - caretOffset(text, d.first, 0);
-    target = { start: el.selectionStart + shift, end: el.selectionEnd + shift };
-  } else {
-    const caret = caretLine(text, from);
-    const anchored = moveIndexAfter(d.first, to, caret.index);
-    const at = caretOffset(next, anchored, caret.column);
-    target = { start: at, end: at };
-  }
+  // 落点（光标 / 选区）由纯函数算：多行整块搬移保留选区并整体平移，单行让光标跟着同一行内容走
+  const target = dropSelection(text, next, d.first, d.last, to, el.selectionStart, el.selectionEnd);
   // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
   // 于是**拖拽也能 Ctrl+Z 撤回**，光标 / 选区也由它一次设到位。
   applyEdit(next, target, from, moveBlock(paddedColors(), d.first, d.last, to));
