@@ -22,8 +22,8 @@
     "test:ui": "vitest run",
     "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
     "e2e": "playwright test --config e2e/playwright.config.ts",
-    "quick": "pnpm format:check && pnpm lint && pnpm typecheck",
-    "check": "pnpm format && pnpm lint && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm test && pnpm build"
+    "quick": "pnpm format:check && pnpm lint && sentrux check . && pnpm typecheck",
+    "check": "pnpm format && pnpm lint && sentrux check . && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
