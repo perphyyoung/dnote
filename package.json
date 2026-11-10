@@ -1,8 +1,8 @@
 {
   "name": "dnote",
   "private": true,
-  "version": "0.2.6",
-  "packageManager": "pnpm@12.4.2",
+  "version": "0.2.7",
+  "packageManager": "pnpm@12.18.0",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
