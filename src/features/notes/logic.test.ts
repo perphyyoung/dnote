@@ -9,6 +9,7 @@ import {
   insertIndexAt,
   lineIndexAt,
   lineRange,
+  moveBlock,
   moveIndexAfter,
   moveItem,
   moveLines,
@@ -46,6 +47,41 @@ describe("moveItem", () => {
   it("空列表与单元素列表安全", () => {
     expect(moveItem([], 0, 3)).toEqual([]);
     expect(moveItem(["only"], 0, 5)).toEqual(["only"]);
+  });
+});
+
+describe("moveBlock", () => {
+  const LIST = ["A", "B", "C", "D", "E"];
+
+  it("整块下移：插到目标行之后，块内顺序不变", () => {
+    expect(moveBlock(LIST, 1, 2, 2)).toEqual(["A", "D", "B", "C", "E"]);
+  });
+
+  it("整块上移：插到目标行之前", () => {
+    expect(moveBlock(LIST, 2, 3, 0)).toEqual(["C", "D", "A", "B", "E"]);
+  });
+
+  it("单行与 moveItem 同口径（to 都是移除后的下标）", () => {
+    expect(moveBlock(LIST, 1, 1, 2)).toEqual(moveItem(LIST, 1, 2));
+    expect(moveBlock(LIST, 3, 3, 0)).toEqual(moveItem(LIST, 3, 0));
+  });
+
+  it("to 落在块首 = 没动（返回等值新数组，不修改入参）", () => {
+    const source = [...LIST];
+    const moved = moveBlock(source, 1, 2, 1);
+    expect(moved).toEqual(LIST);
+    expect(moved).not.toBe(source);
+    expect(source).toEqual(LIST);
+  });
+
+  it("整篇一块与空列表安全", () => {
+    expect(moveBlock(LIST, 0, 4, 0)).toEqual(LIST);
+    expect(moveBlock([], 0, 0, 0)).toEqual([]);
+  });
+
+  it("to 越界时钳制到两端", () => {
+    expect(moveBlock(LIST, 1, 2, 99)).toEqual(["A", "D", "E", "B", "C"]);
+    expect(moveBlock(LIST, 1, 2, -5)).toEqual(["B", "C", "A", "D", "E"]);
   });
 });
 
@@ -122,6 +158,23 @@ describe("insertIndexAt", () => {
     ];
     expect(insertIndexAt(2 * H, wrapped, 0)).toBe(1); // 停在自己这一块里 → 等价于没动
     expect(insertIndexAt(2 * H, wrapped, 1)).toBe(0); // 往上拖 → 插到它上面
+  });
+
+  it("多行整块：指针落在块内（含块末行）得到的都是「没动」的插入位", () => {
+    // 块为第 0–1 行：块内任意位置都应落在 [0, 2]（块首 .. 块末 + 1）
+    for (const row of [0, 1]) {
+      const insert = insertIndexAt(inRow(row), ROWS, 1);
+      expect(insert).toBeGreaterThanOrEqual(0);
+      expect(insert).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("多行整块：块上 / 下相邻行分别插到它上面 / 下面", () => {
+    // 块取第 1–2 行（末行 = 2）：上一行往「拖向块」算，插到它上面
+    expect(insertIndexAt(inRow(0), ROWS, 2)).toBe(0);
+    // 三行里块已到底，换四行验「块下一行往下拖 → 插到它下面」
+    const four: LineBox[] = Array.from({ length: 4 }, (_, i) => ({ top: TOP + i * H, height: H }));
+    expect(insertIndexAt(inRow(3), four, 2)).toBe(4);
   });
 
   it("空列表返回 0", () => {

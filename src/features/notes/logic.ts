@@ -20,6 +20,25 @@ export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
 }
 
 /**
+ * 把 `[first, last]` 这一**整块**搬到 `to`（`to` 是**移除之后**列表里的起始下标，与 `moveItem` 同口径）：
+ * 多行拖拽落盘时用它，块内顺序保持不变。`to` 落在块首（等价于没动）、整篇一块、空列表都返回原样
+ * 新数组；`to` 越界自动钳制。
+ *
+ * 调用方负责把「块内插入位」折算成块首（见 `NoteEditor.vue` 的松手逻辑），这里不再猜语义。
+ */
+export function moveBlock<T>(list: readonly T[], first: number, last: number, to: number): T[] {
+  const out = list.slice();
+  if (out.length === 0) return out;
+  const f = clamp(Math.min(first, last), 0, out.length - 1);
+  const l = clamp(Math.max(first, last), f, out.length - 1);
+  const t = clamp(to, 0, out.length - (l - f + 1));
+  if (t === f) return out;
+  const block = out.splice(f, l - f + 1);
+  out.splice(t, 0, ...block);
+  return out;
+}
+
+/**
  * 一个**逻辑行**排版后的行盒（内容坐标）：`top` 是它的上沿，`height` 是它折行后的总高
  * —— 未折行时就是行高，长行按右边界折行后可以有若干个行高那么高。
  *
@@ -47,21 +66,22 @@ export function lineIndexAt(pointerY: number, boxes: readonly LineBox[]): number
  * 由指针位置换算**插入位**（0..行数）。
  *
  * 规则是「行优先 + 看方向」，与人把文件拖进文件夹的直觉一致：
- * - 指针落在第 i 行，且**从上往下**拖（i ≥ originIndex）→ 插到它下面（i + 1）；
- * - 指针落在第 i 行，且**从下往上**拖（i < originIndex）→ 插到它上面（i）。
+ * - 指针落在第 i 行，且**从上往下**拖（i ≥ blockLast）→ 插到它下面（i + 1）；
+ * - 指针落在第 i 行，且**从下往上**拖（i < blockLast）→ 插到它上面（i）。
  *
- * 于是「拖到哪一行的位置，就放到那一行」；指针停在自己那一行时正好得到 origin + 1，
- * 与「没动」等价（调用方据此不画插入线、不写盘）。指针拖到列表之外时钳制到两端，
- * 所以拖出窗口也仍然落在首行之前 / 末行之后。折行不改变这套规则，只改变几何来源。
+ * `blockLast` 是**被搬块的末行**：单行拖拽时就是那一行自己；多行整块拖拽时是块的末行
+ * —— 于是指针停在块内（含块末行）得到的插入位都落在 `[块首, 块末 + 1]`，调用方据此判定
+ * 「没动」（见 `NoteEditor.vue`）。指针拖到列表之外时钳制到两端，所以拖出窗口也仍然落在
+ * 首行之前 / 末行之后。折行不改变这套规则，只改变几何来源。
  */
 export function insertIndexAt(
   pointerY: number,
   boxes: readonly LineBox[],
-  originIndex: number,
+  blockLast: number,
 ): number {
   const index = lineIndexAt(pointerY, boxes);
   if (index === null) return 0;
-  return index >= originIndex ? index + 1 : index;
+  return index >= blockLast ? index + 1 : index;
 }
 
 // ── 行级编辑（应用内快捷键用）────────────────────────────────────────────────

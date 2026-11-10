@@ -10,6 +10,7 @@ import {
   insertIndexAt,
   lineIndexAt,
   lineRange,
+  moveBlock,
   moveIndexAfter,
   moveItem,
   menuPosition,
@@ -58,6 +59,8 @@ const HANDLE_W = 20;
 /** 指针离容器上下边缘多近就开始自动滚动，以及滚动速度（分母越小越快） */
 const SCROLL_EDGE = 24;
 const SCROLL_DAMPING = 3;
+/** 幽灵行最多渲几行：整块搬移时大块不撑爆窗口，超出部分只由角标里的行数交代 */
+const GHOST_MAX_ROWS = 6;
 
 const scroller = ref<HTMLDivElement | null>(null);
 const editor = ref<HTMLTextAreaElement | null>(null);
@@ -77,17 +80,23 @@ const showRowActions = computed(
 /** 渲染用的行号（模板里不必再处理 null） */
 const currentLine = computed(() => caretIndex.value ?? 0);
 
-/** 松手后落点闪一下给个「落在这儿了」的收尾 */
-const droppedIndex = ref<number | null>(null);
+/** 松手后落点闪一下给个「落在这儿了」的收尾（整块：首末行都圈上） */
+const droppedRange = ref<{ first: number; last: number } | null>(null);
 let dropTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * 拖拽会话。**拖动期间一个字符都不改**：只按指针画幽灵行与插入线，松手那一下才真正重排并落盘。
  * 这样文字不会跳变、光标与撤销栈不受影响 —— 旧实现每次换位都重写 textarea 的值，
  * 正是「拖起来很突兀」的根因（见 `开发经验.md` §3.11）。
+ *
+ * `first` / `last` 是**被搬块的首末行**：没有选区时两者相等（单行拖拽），
+ * 抓起的手柄落在多行选区内时就是整个行范围（见 `design.md` 拖拽节）。
  */
 const drag = ref<{
-  originIndex: number;
+  first: number;
+  last: number;
+  /** 抓的是块内哪一行：幽灵行从这里往下渲染，抓取偏移也按它的行盒算 */
+  grabIndex: number;
   /** 抓取点在行内的偏移：幽灵行按它贴在指针下，捏哪儿就在哪儿 */
   grabOffset: number;
   /** 指针的视口 Y：自动滚动后也拿它重算落点 */
@@ -98,6 +107,22 @@ const drag = ref<{
   ghostLeft: number;
   ghostWidth: number;
 } | null>(null);
+
+/** 被搬块的行数：幽灵行角标与落点闪的宽度都用它 */
+const dragBlockSize = computed(() =>
+  drag.value === null ? 0 : drag.value.last - drag.value.first + 1,
+);
+
+/**
+ * 幽灵行要渲染的块内行：**从被抓的那一行开始**往下最多 `GHOST_MAX_ROWS` 行。
+ * 从抓取行开始而不是块首，是为了让幽灵行始终贴在指针下 —— 抓大块中间某行时，
+ * 块首那几行会跑到指针上方很远的地方，看起来像抓错了东西。
+ */
+const ghostRows = computed(() => {
+  const d = drag.value;
+  if (d === null) return [];
+  return lines.value.slice(d.grabIndex, Math.min(d.last + 1, d.grabIndex + GHOST_MAX_ROWS));
+});
 
 /**
  * 行盒：每个逻辑行折行后的上沿与总高（内容坐标）。**几何一律实测** —— 折行位置只有浏览器知道，
@@ -173,10 +198,10 @@ function measure(): void {
 // 行盒去配新行高（`rowSpan` 因此凭空算出折行），假换行符会一直挂到下次改文本为止。
 watch([lines, ROW_H], measure, { flush: "post" });
 
-/** 插入线只在真会换位时出现：插回自己的上边或下边都等于没动 */
+/** 插入线只在真会换位时出现：插回块内（块首上边 … 块末下边）都等于没动 */
 const showInsertLine = computed(() => {
   const d = drag.value;
-  return d !== null && d.insert !== d.originIndex && d.insert !== d.originIndex + 1;
+  return d !== null && (d.insert < d.first || d.insert > d.last + 1);
 });
 
 // ── 当前行（光标所在行）：高亮与右侧行操作按钮都以它为目标 ──────────────────
@@ -267,19 +292,32 @@ function onScrollerDown(e: PointerEvent): void {
 function onHandleDown(e: PointerEvent, index: number): void {
   if (e.button !== 0) return;
   const el = scroller.value;
-  if (!el) return;
+  const area = editor.value;
+  if (!el || !area) return;
+  // 只认**可见**的选区：失焦后 selectionStart/End 仍然留着旧值，但用户看不见高亮，
+  // 此时按选区搬整块会是「看不见的块被拖走」—— 所以失焦时一律当单行。
+  const range =
+    document.activeElement === area
+      ? selectionLines(area.value, area.selectionStart, area.selectionEnd)
+      : null;
+  // 抓的是选区内的哪一行：整块搬；抓选区外的手柄仍只搬那一行（按钮与本行手柄保持"指哪打哪"）
+  const inSelection = range !== null && index >= range.first && index <= range.last;
+  const first = inSelection ? range.first : index;
+  const last = inSelection ? range.last : index;
   const rect = el.getBoundingClientRect();
-  // 该行盒在视口里的上沿（折行后这一块可能很高）
+  // 抓取行在视口里的上沿（折行后这一块可能很高）
   const rowTop = rect.top - el.scrollTop + boxTop(index);
   // 抓住指针：拖到编辑器外也能继续收到 move / up
   (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   drag.value = {
-    originIndex: index,
+    first,
+    last,
+    grabIndex: index,
     // 幽灵行固定一个行高，所以抓取偏移也按一个行高钳制：捏在很高的块的下半部分时，
     // 幽灵行贴在该块上沿附近，不会飘出去
     grabOffset: Math.min(Math.max(e.clientY - rowTop, 0), ROW_H.value),
     pointerY: e.clientY,
-    insert: index,
+    insert: first,
     ghostLeft: rect.left,
     ghostWidth: rect.width,
   };
@@ -299,27 +337,37 @@ function onHandleUp(): void {
   drag.value = null;
   stopAutoScroll();
   document.body.classList.remove("dragging");
-  // 插回原位（自己的上边或下边）等于没动：不写盘也不闪
-  if (d.insert === d.originIndex || d.insert === d.originIndex + 1) return;
-  // 插入位是「移除之前」的下标：往后拖时要减一
-  const to = d.insert > d.originIndex ? d.insert - 1 : d.insert;
+  // 插回块内（块首上边 … 块末下边）等于没动：不写盘也不闪
+  if (d.insert >= d.first && d.insert <= d.last + 1) return;
+  // 插入位是「移除之前」的下标：往后拖时要减去整块长度
+  const blockSize = d.last - d.first + 1;
+  const to = d.insert > d.last ? d.insert - blockSize : d.insert;
   const el = editor.value;
   if (!el) return;
   const from = el.selectionStart; // 拖拽前光标在哪：一并交给 applyEdit 作为撤销后的归位点
-  const caret = caretLine(el.value, from);
-  const text = moveItem(lines.value, d.originIndex, to).join("\n");
-  // 光标跟着「同一行内容」走：被搬的就是它 → 到新位置；不是 → 留在原行（列都不变）
-  const anchored = moveIndexAfter(d.originIndex, to, caret.index);
+  const text = el.value;
+  const next = moveBlock(lines.value, d.first, d.last, to).join("\n");
+  // 落点：多行整块搬移时**保留选区**并整体平移到新位置（与 `Alt+↑↓` 一致，可连续拖）；
+  // 单行（没有选区）仍让光标跟着同一行内容走、列不变。
+  let target: { start: number; end: number };
+  if (d.first !== d.last) {
+    const shift = caretOffset(next, to, 0) - caretOffset(text, d.first, 0);
+    target = { start: el.selectionStart + shift, end: el.selectionEnd + shift };
+  } else {
+    const caret = caretLine(text, from);
+    const anchored = moveIndexAfter(d.first, to, caret.index);
+    const at = caretOffset(next, anchored, caret.column);
+    target = { start: at, end: at };
+  }
   // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
-  // 于是**拖拽也能 Ctrl+Z 撤回**，光标也由它一次设到位。
-  const caretAfter = caretOffset(text, anchored, caret.column);
-  applyEdit(
-    text,
-    { start: caretAfter, end: caretAfter },
-    from,
-    moveItem(paddedColors(), d.originIndex, to),
+  // 于是**拖拽也能 Ctrl+Z 撤回**，光标 / 选区也由它一次设到位。
+  applyEdit(next, target, from, moveBlock(paddedColors(), d.first, d.last, to));
+  flashDropped(to, to + blockSize - 1);
+  log.info(
+    d.first === d.last
+      ? `[notes] 第 ${d.first + 1} 行拖到第 ${to + 1} 行`
+      : `[notes] 第 ${d.first + 1}–${d.last + 1} 行整块拖到第 ${to + 1}–${to + blockSize} 行`,
   );
-  flashDropped(to);
 }
 
 /** 系统取消（触摸被打断等）：整段丢弃，内容一个字都不改 */
@@ -337,8 +385,9 @@ function updateFromPointer(pointerY: number): void {
   if (!d || !el) return;
   const rect = el.getBoundingClientRect();
   d.pointerY = pointerY;
-  // 把指针换成**内容坐标**再交给行盒判定：折行后的高度完全由实测决定
-  d.insert = insertIndexAt(pointerY - rect.top + el.scrollTop, boxes.value, d.originIndex);
+  // 把指针换成**内容坐标**再交给行盒判定：折行后的高度完全由实测决定。
+  // 方向基准是**块末行**：指针落在块内任何位置都得到「没动」的插入位。
+  d.insert = insertIndexAt(pointerY - rect.top + el.scrollTop, boxes.value, d.last);
 }
 
 // ── 应用内快捷键（键位与边界见 design.md 快捷键节）────────────────────────────
@@ -850,12 +899,12 @@ function autoScrollTick(): void {
   raf = requestAnimationFrame(autoScrollTick);
 }
 
-function flashDropped(index: number): void {
-  droppedIndex.value = index;
+function flashDropped(first: number, last: number): void {
+  droppedRange.value = { first, last };
   if (dropTimer !== null) clearTimeout(dropTimer);
   dropTimer = setTimeout(() => {
     dropTimer = null;
-    droppedIndex.value = null;
+    droppedRange.value = null;
   }, 240);
 }
 </script>
@@ -912,7 +961,7 @@ function flashDropped(index: number): void {
       class="pointer-events-none absolute inset-x-0 top-0 z-20"
       :style="{ height: `${editorHeight}px` }"
     >
-      <!-- 被拿起来的那一行：**有意**做成盖在文字上的色罩（「这一行被搬走了」本该灰下去）；
+      <!-- 被拿起来的块（可能是多行）：**有意**做成盖在文字上的色罩（「这块被搬走了」本该灰下去）；
            再加虚线上下沿，让「搬走的是这一整块」有明确起止（折行块可以很高，只靠色罩边界发虚） -->
       <div
         v-if="drag"
@@ -921,15 +970,18 @@ function flashDropped(index: number): void {
         :style="{
           borderColor: 'var(--note-fg-faint)',
           backgroundColor: 'var(--note-fg-veil)',
-          top: `${boxTop(drag.originIndex)}px`,
-          height: `${boxHeight(drag.originIndex)}px`,
+          top: `${boxTop(drag.first)}px`,
+          height: `${boxTop(drag.last) + boxHeight(drag.last) - boxTop(drag.first)}px`,
         }"
       />
-      <!-- 松手落点闪一下（220ms 淡出） -->
+      <!-- 松手落点闪一下（220ms 淡出）：整块圈上 -->
       <div
-        v-if="droppedIndex !== null"
+        v-if="droppedRange !== null"
         class="drop-flash absolute inset-x-0 bg-sky-400/20"
-        :style="{ top: `${boxTop(droppedIndex)}px`, height: `${boxHeight(droppedIndex)}px` }"
+        :style="{
+          top: `${boxTop(droppedRange.first)}px`,
+          height: `${boxTop(droppedRange.last) + boxHeight(droppedRange.last) - boxTop(droppedRange.first)}px`,
+        }"
       />
       <!-- 续行拐弯箭头：折行的行，**每个续行前**都常显一个 ↳（常显，不跟悬停走）。
            它与手柄共用左侧槽那一格：同宽（HANDLE_W）+ 水平居中 → 两个标记落在**同一条竖中线**上
@@ -953,14 +1005,14 @@ function flashDropped(index: number): void {
         ↳
       </div>
       <!-- 拖拽手柄：**只在逻辑行的首个视觉行**出现（折行块再高也只有一个手柄，不跟着变胖），
-           仍然是「指针停在这一行时才显形」。上一版的悬停行号已删 —— 左侧槽只留手柄与续行箭头，
-           视觉负担才是对的。 -->
+           仍然是「指针停在这一行时才显形」。拖动中只留被抓住那一行的手柄 —— 整块范围已由
+           上面的源行罩交代，不必再亮起一排。 -->
       <button
         v-for="(_, index) in lines"
         :key="index"
         type="button"
         class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center transition-opacity active:cursor-grabbing"
-        :class="index === hoverIndex || index === drag?.originIndex ? 'opacity-100' : 'opacity-0'"
+        :class="index === hoverIndex || index === drag?.grabIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
           color: 'var(--note-fg-faint)',
           top: `${boxTop(index)}px`,
@@ -1176,32 +1228,46 @@ function flashDropped(index: number): void {
     </div>
   </div>
 
-  <!-- 幽灵行：正被拿着的那一行本身，跟手贴着指针（fixed 定位，不参与文本流）。
+  <!-- 幽灵行：正被拿着的**整块**（可能是多行），跟手贴着指针（fixed 定位，不参与文本流）。
+       从被抓的那一行开始渲最多 GHOST_MAX_ROWS 行：块再大也不撑出窗口，总行数由角标交代。
        底色用**颜色 alpha**（不是 `opacity-*`）留 10% 透光：只为看清下面那一行的字、好判断落点，
        文字与描边保持实心；插入线的可见性由它自己的 z-[60] 层保证，不靠这里透出来（见 design.md「叠层」）。 -->
   <div
     v-if="drag"
     data-drag-ghost
-    class="pointer-events-none fixed z-50 flex items-center rounded bg-[var(--note-bg)] shadow-xl ring-1 ring-[var(--note-fg-weak)]"
+    class="pointer-events-none fixed z-50 flex flex-col overflow-hidden rounded bg-[var(--note-bg)] shadow-xl ring-1 ring-[var(--note-fg-weak)]"
     :style="{
       top: `${drag.pointerY - drag.grabOffset}px`,
       left: `${drag.ghostLeft}px`,
       width: `${drag.ghostWidth}px`,
-      height: `${ROW_H}px`,
+      height: `${ghostRows.length * ROW_H}px`,
     }"
   >
-    <span
-      class="flex shrink-0 justify-center text-[var(--note-fg-faint)]"
-      :style="{ width: `${HANDLE_W + 2}px` }"
+    <div
+      v-for="(line, row) in ghostRows"
+      :key="row"
+      class="flex items-center"
+      :style="{ height: `${ROW_H}px` }"
     >
-      ⠿
-    </span>
-    <span
-      class="min-w-0 flex-1 truncate px-1 text-[var(--note-fg)]"
-      :style="{ fontSize: 'var(--note-font-size)' }"
-    >
-      {{ lines[drag.originIndex] ?? "" }}
-    </span>
+      <span
+        class="flex shrink-0 justify-center text-[var(--note-fg-faint)]"
+        :style="{ width: `${HANDLE_W + 2}px` }"
+      >
+        {{ row === 0 ? "⠿" : "" }}
+      </span>
+      <span
+        class="min-w-0 flex-1 truncate px-1 text-[var(--note-fg)]"
+        :style="{ fontSize: 'var(--note-font-size)' }"
+      >
+        {{ line }}
+      </span>
+      <span
+        v-if="row === 0 && dragBlockSize > 1"
+        class="shrink-0 pr-2 text-[10px] text-[var(--note-fg-faint)]"
+      >
+        {{ dragBlockSize }} 行
+      </span>
+    </div>
   </div>
 
   <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），
