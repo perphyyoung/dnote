@@ -107,8 +107,8 @@ function blend(px, i, [r, g, b], a) {
 }
 
 /** 渲染一张 S×S 的 RGBA 图：底色圆角方块 + 居中排布的 text */
-function render(S, { fg, bg, text }) {
-  const glyphs = [...text].map((c) => {
+function render(S, { fg, bg, text: label }) {
+  const glyphs = [...label].map((c) => {
     const g = GLYPHS[c];
     if (!g) throw new Error(`字形表里没有 "${c}"（只画了 ${Object.keys(GLYPHS).join(" / ")}）`);
     return g;

@@ -39,12 +39,13 @@ async function contrastWithShell(page: Page, selector: string): Promise<number> 
     const el = document.querySelector(sel);
     const shell = document.querySelector('[role="application"]');
     if (!el || !shell) return -1;
-    const rgb = (color: string) =>
-      (color.match(/[\d.]+/g) ?? []).slice(0, 3).map((value) => Number(value) / 255);
+    // page.evaluate 的回调在浏览器里执行，拿不到模块作用域 —— helper 必须留在回调内
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
     const luminance = (color: string) => {
-      const [r = 0, g = 0, b = 0] = rgb(color).map((value) =>
-        value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4,
-      );
+      const [r = 0, g = 0, b = 0] = (color.match(/[\d.]+/g) ?? [])
+        .slice(0, 3)
+        .map((value) => Number(value) / 255)
+        .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
     const fg = luminance(getComputedStyle(el).color);
@@ -58,6 +59,16 @@ const panel = (page: Page) => page.getByRole("dialog", { name: "设置" });
 const slider = (page: Page) => page.getByLabel("笔记字体大小");
 const editor = (page: Page) => page.getByRole("textbox", { name: "笔记内容" });
 const mirror = (page: Page) => page.locator("[data-mirror]");
+
+/// 次级面板默认收起：展开并直接输入一段可辨识的内容（改 DOM 即改前端那份事实源）。
+/// 保持展开 —— 收起后 textarea 消失，导入后的断言就读不到它了；展开态由 `afterEach`
+/// 连偏好一起清掉（否则会跨轮次污染后面的用例）。
+async function seedSecondary(page: Page, text: string): Promise<void> {
+  await page.keyboard.press("Alt+s");
+  const secondary = panelEditor(page, "secondary");
+  await expect(secondary).toBeVisible();
+  await secondary.fill(text);
+}
 
 test.describe("设置面板", () => {
   test.beforeEach(async ({ app, page }) => {
@@ -424,8 +435,8 @@ test.describe("设置面板", () => {
     const atDefault = await rowHeight(page);
 
     await gear(page).click();
-    const slider = page.getByLabel("笔记行高比");
-    await slider.fill("2");
+    const ratioSlider = page.getByLabel("笔记行高比");
+    await ratioSlider.fill("2");
     expect(await rowHeight(page)).toBeGreaterThan(atDefault); // 即时生效
 
     // 与「字体大小」同构：这一行**没有**「重置」按钮（同组控件做法一致，见 design.md「设置面板」）
@@ -433,7 +444,7 @@ test.describe("设置面板", () => {
 
     // 偏好落盘：重载后停在同一个行高上。断的是「行高没变」而不是某个绝对值 ——
     // 缺省行高比是代码里的调节点，钉死数字会让人改比例时先红一遍。
-    await slider.fill("1.2");
+    await ratioSlider.fill("1.2");
     const before = await rowHeight(page);
     await page.reload();
     await gear(page).click();
@@ -444,16 +455,6 @@ test.describe("设置面板", () => {
   // ── 全量笔记备份（导出 / 导入 zip）──────────────────────────────────────────
   // e2e 点不到原生文件对话框：`launchApp` 注入了 `DNOTE_BACKUP_PATH`（实例数据目录里的一个 zip），
   // 导出写它、导入读它 —— 于是这两条覆盖的是「打包 → 解包 → 二次确认 → 落地」整条链路。
-
-  /// 次级面板默认收起：展开并直接输入一段可辨识的内容（改 DOM 即改前端那份事实源）。
-  /// 保持展开 —— 收起后 textarea 消失，导入后的断言就读不到它了；展开态由 `afterEach`
-  /// 连偏好一起清掉（否则会跨轮次污染后面的用例）。
-  async function seedSecondary(page: Page, text: string): Promise<void> {
-    await page.keyboard.press("Alt+s");
-    const secondary = panelEditor(page, "secondary");
-    await expect(secondary).toBeVisible();
-    await secondary.fill(text);
-  }
 
   test("笔记备份：导出 → 改乱 → 导入（确认）后两块面板都还原", async ({ app, page }) => {
     const zip = backupPath(app);

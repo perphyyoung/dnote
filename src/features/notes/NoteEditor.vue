@@ -756,17 +756,17 @@ function moveCurrentLine(delta: number): void {
   if (!el) return;
   const text = el.value;
   const from = el.selectionStart;
-  const lines = text.split("\n");
+  const parts = text.split("\n");
 
   const range = selectionLines(text, el.selectionStart, el.selectionEnd);
   if (range !== null) {
-    const moved = moveLines(lines, range.first, range.last, delta);
+    const moved = moveLines(parts, range.first, range.last, delta);
     if (moved === null) return; // 块已顶到首行 / 底到末行
     // 颜色按同一套置换跟着块走（颜色数组先补齐到行数，否则 moveLines 会夹错边界）
     const nextColors = moveLines(paddedColors(), range.first, range.last, delta);
     // 块整体平移一行 = 选区按「相邻那一行 + 它的换行」平移（换行跟着那一行一起被搬走）
     const neighbour =
-      delta < 0 ? lines[range.first - 1].length + 1 : lines[range.last + 1].length + 1;
+      delta < 0 ? parts[range.first - 1].length + 1 : parts[range.last + 1].length + 1;
     const shift = delta < 0 ? -neighbour : neighbour;
     const next = moved.join("\n");
     applyEdit(
@@ -783,8 +783,8 @@ function moveCurrentLine(delta: number): void {
 
   const { index, column } = caretLine(text, from);
   const target = index + delta;
-  if (target < 0 || target >= lines.length) return;
-  const next = moveItem(lines, index, target).join("\n");
+  if (target < 0 || target >= parts.length) return;
+  const next = moveItem(parts, index, target).join("\n");
   const caret = caretOffset(next, target, column);
   applyEdit(next, { start: caret, end: caret }, from, moveItem(paddedColors(), index, target));
   log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);

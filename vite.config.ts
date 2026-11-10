@@ -10,7 +10,7 @@ const pkg = JSON.parse(
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 
-// @ts-expect-error process is env defined by tauri recommended config
+// process is env defined by tauri recommended config
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({

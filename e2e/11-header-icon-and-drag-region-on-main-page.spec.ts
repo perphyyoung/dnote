@@ -28,8 +28,8 @@ function centerY(box: Box): number {
 /// 该点按命中规则落在谁身上，它自己带不带拖动标记（`pointer-events:none` 的元素会被穿透）
 async function isDragRegionAt(page: Page, x: number, y: number): Promise<boolean> {
   return page.evaluate(
-    ({ x, y }) => {
-      const el = document.elementFromPoint(x, y);
+    ({ x: px, y: py }) => {
+      const el = document.elementFromPoint(px, py);
       return el !== null && el.hasAttribute("data-tauri-drag-region");
     },
     { x, y },

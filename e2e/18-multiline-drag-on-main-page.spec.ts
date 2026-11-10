@@ -15,7 +15,6 @@ import {
   dragLineWith,
   editorText,
   expectPersistedLines,
-  lineHandles,
   rowHeight,
   seedLines,
   selection,

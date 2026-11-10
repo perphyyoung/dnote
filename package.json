@@ -16,11 +16,14 @@
     "format:ui": "oxfmt src/ e2e/",
     "format:rs": "cargo fmt --manifest-path src-tauri/Cargo.toml",
     "format:check": "oxfmt src/ e2e/ --check && cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "lint": "oxlint --deny-warnings src e2e scripts",
+    "lint:fix": "oxlint --fix src e2e scripts",
     "test": "pnpm test:ui && pnpm test:rs",
     "test:ui": "vitest run",
     "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
     "e2e": "playwright test --config e2e/playwright.config.ts",
-    "check": "pnpm format && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm build"
+    "quick": "pnpm format:check && pnpm lint && pnpm typecheck",
+    "check": "pnpm format && pnpm lint && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm test && pnpm build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
@@ -33,6 +36,7 @@
     "@vitejs/plugin-vue": "^5",
     "autoprefixer": "^10.4",
     "oxfmt": "^0.65.0",
+    "oxlint": "^1.92.0",
     "postcss": "^8.4",
     "tailwindcss": "^3.4",
     "typescript": "^5.6",

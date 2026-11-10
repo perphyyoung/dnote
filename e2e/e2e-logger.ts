@@ -29,12 +29,16 @@ function fmt(args: unknown[]): string {
     .join(" ");
 }
 
+/// 两位补零（时间戳用）：放模块作用域，避免每次取时间都新建闭包
+function pad(n: number, len = 2): string {
+  return String(n).padStart(len, "0");
+}
+
 function timestamp(): string {
   const d = new Date();
-  const p = (n: number, len = 2) => String(n).padStart(len, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(
     d.getMinutes(),
-  )}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  )}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
 /// 输出级别阈值：低于阈值的日志不写入。经 playwright.config.ts 设置

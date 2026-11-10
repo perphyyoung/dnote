@@ -883,6 +883,8 @@ const helpersTest = base.extend<
   // 与业务日志同阈值（INFO）——默认 debug 下写入；改为 warn 后消失（只记异常信号）。
   // 声明为 auto：全部用例自动生效，spec 侧零改动。
   testSection: [
+    // Playwright 要求 fixture 首参必须是对象解构；这里不取任何 fixture
+    // oxlint-disable-next-line no-empty-pattern
     async ({}, use, testInfo) => {
       const name = `${path.basename(testInfo.file, ".spec.ts")} › ${testInfo.titlePath.slice(1).join(" › ")}`;
       testLog(testInfo.workerIndex, `▶ ${name}`);
@@ -903,6 +905,8 @@ const helpersTest = base.extend<
     { scope: "test", auto: true },
   ],
   _appPool: [
+    // 同上：Playwright fixture 签名固定，首参不取也要写成空解构
+    // oxlint-disable-next-line no-empty-pattern
     async ({}, use, workerInfo) => {
       let seq = 0;
       // 用对象包一层：闭包内改写属性，TS 的控制流分析不会把外面的读取窄化成 null

@@ -109,23 +109,23 @@ test.describe("帮助面板", () => {
   });
 
   test("三条收起路：点遮罩、点标题条、`Esc` 各收一次", async ({ page }) => {
-    const closers: ReadonlyArray<[string, (page: Page) => Promise<void>]> = [
+    const closers: ReadonlyArray<[string, (pg: Page) => Promise<void>]> = [
       [
         "遮罩",
-        async (page) => {
-          await page.getByRole("application").click({ position: { x: 20, y: 60 } });
+        async (pg) => {
+          await pg.getByRole("application").click({ position: { x: 20, y: 60 } });
         },
       ],
       [
         "标题条",
-        async (page) => {
-          await page.mouse.click(100, 16);
+        async (pg) => {
+          await pg.mouse.click(100, 16);
         },
       ],
       [
         "Esc",
-        async (page) => {
-          await page.keyboard.press("Escape");
+        async (pg) => {
+          await pg.keyboard.press("Escape");
         },
       ],
     ];

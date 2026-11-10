@@ -13,6 +13,14 @@ const LINES = ["甲", "乙", "丙"];
 const RED = "rgb(244, 63, 94)"; // #f43f5e
 const BLUE = "rgb(14, 165, 233)"; // #0ea5e9
 
+/// 把指针放到第 index 行并打开色板
+async function openPalette(page: Page, index: number) {
+  await caretTo(page, index, 0);
+  await hoverRow(page, index);
+  await page.getByRole("button", { name: "行颜色" }).click();
+  return page.getByRole("dialog", { name: "行颜色" });
+}
+
 test.describe("行颜色", () => {
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
@@ -20,14 +28,6 @@ test.describe("行颜色", () => {
     await page.evaluate(() => localStorage.removeItem("dnote:line-colors:main"));
     await page.reload();
   });
-
-  /// 把指针放到第 index 行并打开色板
-  async function openPalette(page: Page, index: number) {
-    await caretTo(page, index, 0);
-    await hoverRow(page, index);
-    await page.getByRole("button", { name: "行颜色" }).click();
-    return page.getByRole("dialog", { name: "行颜色" });
-  }
 
   test("选红 → 左侧强调条出现；重载仍记住；选默认还原", async ({ page }) => {
     const palette = await openPalette(page, 1);

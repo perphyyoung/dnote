@@ -5,6 +5,8 @@ import { contrastRatio, LOW_CONTRAST_THEME, matchTheme, THEMES } from "@/feature
 const FLOOR = 7;
 /// 「柔灰」是**故意**压低的对比度（长时间盯屏幕最舒服），单独豁免；其余都不许低于 7:1
 const LOW_FLOOR = 6.5;
+/// 背景是否偏暗：放模块作用域，避免每个用例重建闭包
+const isDark = (bg: string) => contrastRatio("#ffffff", bg) > contrastRatio("#000000", bg);
 
 describe("颜色搭配推荐", () => {
   it("每组正文对比度都够（柔灰按它自己那档门槛）", () => {
@@ -33,7 +35,6 @@ describe("颜色搭配推荐", () => {
   });
 
   it("前 10 档深色、后 10 档浅色（列表里就是深色一段、浅色一段）", () => {
-    const isDark = (bg: string) => contrastRatio("#ffffff", bg) > contrastRatio("#000000", bg);
     expect(THEMES.slice(0, 10).every((theme) => isDark(theme.bg))).toBe(true);
     expect(THEMES.slice(10).every((theme) => !isDark(theme.bg))).toBe(true);
   });
