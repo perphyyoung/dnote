@@ -1033,22 +1033,6 @@ function flashDropped(first: number, last: number): void {
           height: `${ROW_H}px`,
         }"
       >
-        <!-- 行颜色：与复制 / 删除同一条浮条，点它开色板（作用在**当前行**，不跟随悬停行） -->
-        <button
-          type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
-          aria-label="行颜色"
-          title="行颜色"
-          aria-haspopup="dialog"
-          :aria-expanded="paletteFor === currentLine"
-          @mousedown.prevent
-          @click="openPalette($event, currentLine)"
-        >
-          <span
-            class="h-2.5 w-2.5 rounded-full ring-1 ring-[var(--note-fg-faint)]"
-            :style="{ backgroundColor: lineColors.colorAt(currentLine) ?? 'transparent' }"
-          />
-        </button>
         <button
           type="button"
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
@@ -1112,6 +1096,23 @@ function flashDropped(first: number, last: number): void {
         <span class="sr-only" aria-live="polite">
           {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
         </span>
+        <!-- 行颜色：与复制 / 删除同一条浮条，点它开色板（作用在**当前行**，不跟随悬停行）。
+             排在复制之后、删除之前：复制最高频，放最左；删除有破坏性，留最右。 -->
+        <button
+          type="button"
+          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
+          aria-label="行颜色"
+          title="行颜色"
+          aria-haspopup="dialog"
+          :aria-expanded="paletteFor === currentLine"
+          @mousedown.prevent
+          @click="openPalette($event, currentLine)"
+        >
+          <span
+            class="h-2.5 w-2.5 rounded-full ring-1 ring-[var(--note-fg-faint)]"
+            :style="{ backgroundColor: lineColors.colorAt(currentLine) ?? 'transparent' }"
+          />
+        </button>
         <button
           type="button"
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-rose-500 hover:ring-[var(--note-fg-faint)]"
