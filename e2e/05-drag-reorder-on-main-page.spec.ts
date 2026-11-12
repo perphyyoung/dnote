@@ -14,7 +14,9 @@ import {
   dragLineWith,
   editorText,
   expectPersistedLines,
+  lineHandles,
   readPersistedLines,
+  rowHeight,
   seedLines,
   selection,
   test,
@@ -227,9 +229,50 @@ test.describe("拖拽调整行序", () => {
     expect(await editorText(page)).toBe("第二行\n第三行\n第一行");
     await expectPersistedLines(app.dataDir, ["第二行", "第三行", "第一行"]);
   });
+
+  test.describe("小行高（起手行判定）", () => {
+    // 字号 / 行高比存在 WebView profile 里：清掉并重载，别污染同 worker 的其它用例
+    test.afterEach(async ({ page }) => {
+      await page.evaluate(() => {
+        localStorage.removeItem("dnote:font-size");
+        localStorage.removeItem("dnote:line-height");
+      });
+      await page.reload();
+    });
+
+    test("按住第一行手柄，拖的仍是第一行", async ({ page, app }) => {
+      // 最小档：10px × 1.0 = 10px 行高。字形溢出按钮盒曾让下一行的手柄抢到点击，
+      // 起手行号直接大一行 —— 幽灵行会显示「第二行」。
+      await page.evaluate(() => {
+        localStorage.setItem("dnote:font-size", "10");
+        localStorage.setItem("dnote:line-height", "1");
+      });
+      await page.reload();
+      expect(await rowHeight(page)).toBe(10);
+
+      const handle = await lineHandles(page).first().boundingBox();
+      if (!handle) throw new Error("取不到第一行手柄位置");
+      const x = handle.x + handle.width / 2;
+      const y = handle.y + handle.height / 2;
+
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      // 起手行必须是第一行：幽灵行内容就是判据
+      await expect(page.locator("[data-drag-ghost]")).toContainText("第一行");
+
+      // 拖到末尾松手：搬走的应是第一行，而不是第二行
+      const target = await lineHandles(page).last().boundingBox();
+      if (!target) throw new Error("取不到末行手柄位置");
+      await page.mouse.move(x, target.y + target.height / 2, { steps: 8 });
+      await page.mouse.up();
+
+      expect(await editorText(page)).toBe("第二行\n第三行\n第一行");
+      await expectPersistedLines(app.dataDir, ["第二行", "第三行", "第一行"]);
+    });
+  });
 });
 
-/// 按住第一行手柄只往下挪 10px（< 半行 14px）后松手：顺序必须原样不动
+/// 按住第一行手柄只往下挪 10px（在默认行高的半行以内、指针仍在本行）后松手：顺序必须原样不动
 async function dragLineWithinHalfRow(page: import("@playwright/test").Page): Promise<void> {
   const handle = await page.getByRole("button", { name: "拖拽调整顺序" }).first().boundingBox();
   if (!handle) throw new Error("取不到第一行的手柄位置");
