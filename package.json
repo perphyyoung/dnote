@@ -19,8 +19,8 @@
     "lint": "oxlint --deny-warnings src e2e scripts",
     "lint:fix": "oxlint --fix src e2e scripts",
     "test": "pnpm test:ui && pnpm test:rs",
-    "test:ui": "vitest run",
-    "test:rs": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "test:ui": "vitest run --reporter=dot",
+    "test:rs": "cargo test --quiet --manifest-path src-tauri/Cargo.toml",
     "e2e": "playwright test --config e2e/playwright.config.ts",
     "quick": "pnpm format:check && pnpm lint && sentrux check . && pnpm typecheck",
     "check": "pnpm format && pnpm lint && sentrux check . && pnpm build:rs && pnpm gen:bindings && pnpm typecheck && pnpm test && pnpm build"
