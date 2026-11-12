@@ -22,6 +22,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { e2eLog, setWorkerTag, testLog } from "./e2e-logger";
+import { appExePath } from "./target-dir";
 
 /// 项目根（e2e/ 的上一级）
 const ROOT = path.join(import.meta.dirname, "..");
@@ -41,11 +42,6 @@ export interface AppHandle {
 }
 
 /// 调试二进制路径（`tauri build --debug --no-bundle` 产物，globalSetup 已构建）。
-/// 共享 target 目录由 CARGO_TARGET_DIR 指定，不得硬编码。
-function exePath(): string {
-  const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(ROOT, "target");
-  return path.join(targetDir, "debug", "dnote.exe");
-}
 
 /// 探测一个空闲端口（CDP 每实例独立，并行 worker 互不冲突）
 function freePort(): Promise<number> {
@@ -135,7 +131,7 @@ async function launchApp(workerIndex: number, seq: number): Promise<AppHandle> {
   };
   // 数据目录先建出来：窗口状态的保存可能早于第一次落笔（它写的就是这个目录里的那个文件）
   fs.mkdirSync(dataDir, { recursive: true });
-  const child = spawn(exePath(), [], { cwd: ROOT, env, stdio: "ignore" });
+  const child = spawn(appExePath(), [], { cwd: ROOT, env, stdio: "ignore" });
   child.on("error", (e) => e2eLog.error(`[app] spawn 失败：${e.message}`));
   child.on("exit", (code) => e2eLog.info("[app] 进程退出", { code }));
 

@@ -1,9 +1,10 @@
 /// 整轮 e2e 前做两件事：清掉上一轮泄漏的实例目录、构建一次带内嵌前端的调试二进制。
-/// 构建输出不进控制台（失败时由抛出的异常带出），后续 spec 直接 spawn 该 exe。
+/// 构建输出实时继承到控制台（进度可见），后续 spec 直接 spawn 该 exe。
 import fs from "node:fs";
 import { execSync } from "node:child_process";
 import { join } from "node:path";
 import { e2eLog } from "./e2e-logger";
+import { e2eTargetDir } from "./target-dir";
 
 /// 清理上一轮可能泄漏的实例目录。
 /// 为什么必须做：目录名是 `temp/e2e-w<worker>-<序号>`，而序号每轮从 0 重新计数；
@@ -39,10 +40,21 @@ function sweepLeakedDirs(): void {
 
 export default function globalSetup(): void {
   sweepLeakedDirs();
-  e2eLog.info("[global-setup] 构建调试二进制（tauri build --debug --no-bundle）");
+  const targetDir = e2eTargetDir();
+  const started = Date.now();
+  e2eLog.info(`[global-setup] 构建 e2e 二进制（target=${targetDir}）`);
   execSync("pnpm tauri build --debug --no-bundle", {
     cwd: join(import.meta.dirname, ".."),
-    stdio: "ignore",
+    // 不吞输出：cargo/前端构建进度实时可见，避免看起来卡住
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      CARGO_TARGET_DIR: targetDir,
+      // auto：stderr 是 TTY 才显示进度，宽度自动探测；CI/重定向时自动隐藏
+      CARGO_TERM_PROGRESS_WHEN: "auto",
+    },
   });
-  e2eLog.info("[global-setup] 构建完成");
+  e2eLog.info(
+    `[global-setup] e2e 二进制构建完成，用时 ${((Date.now() - started) / 1000).toFixed(1)}s`,
+  );
 }
