@@ -289,15 +289,16 @@ function onScrollerDown(e: PointerEvent): void {
 }
 
 // ── 拖拽调序 ────────────────────────────────────────────────────────────────
-function onHandleDown(e: PointerEvent, fallbackIndex: number): void {
+function onHandleDown(e: PointerEvent): void {
   if (e.button !== 0) return;
   const el = scroller.value;
   const area = editor.value;
   if (!el || !area) return;
   const rect = el.getBoundingClientRect();
-  // 手柄索引不能全信：小行高时按钮里的字形会溢出按钮盒，下一行按钮的文字可能盖住上一行
-  // 的下半区（pointerdown 于是落到邻行按钮上）。**以指针几何为准**，按钮索引只做兜底。
-  const index = lineIndexAt(e.clientY - rect.top + el.scrollTop, boxes.value) ?? fallbackIndex;
+  // 行号只认指针几何：按钮索引会因命中区偏差而错位（小行高下字形曾溢出到邻行）。
+  // 指针落在哪一行就是哪一行，没有兜底（见 `开发经验.md` §3.19）。
+  const index = lineIndexAt(e.clientY - rect.top + el.scrollTop, boxes.value);
+  if (index === null) return;
   // 只认**可见**的选区：失焦后 selectionStart/End 仍然留着旧值，但用户看不见高亮，
   // 此时按选区搬整块会是「看不见的块被拖走」—— 所以失焦时一律当单行。
   const range =
@@ -1004,7 +1005,7 @@ function flashDropped(first: number, last: number): void {
         v-for="(_, index) in lines"
         :key="index"
         type="button"
-        class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center overflow-hidden transition-opacity active:cursor-grabbing"
+        class="pointer-events-auto absolute flex cursor-grab touch-none items-center justify-center transition-opacity active:cursor-grabbing"
         :class="index === hoverIndex || index === drag?.grabIndex ? 'opacity-100' : 'opacity-0'"
         :style="{
           color: 'var(--note-fg-faint)',
@@ -1014,13 +1015,20 @@ function flashDropped(first: number, last: number): void {
         }"
         aria-label="拖拽调整顺序"
         @mousedown.prevent
-        @pointerdown="onHandleDown($event, index)"
+        @pointerdown="onHandleDown($event)"
         @pointermove="onHandleMove"
         @pointerup="onHandleUp"
         @pointercancel="onHandleCancel"
       >
-        <!-- 字形不许参与命中：小行高时它的行盒会溢出按钮盒，抢到邻行的点击（见 §3.19） -->
-        <span class="pointer-events-none leading-none">⠿</span>
+        <!-- 字号与行高都夹到 ROW_H 以内：字形行内盒不能溢出按钮盒，否则会抢邻行点击（见 §3.19） -->
+        <span
+          :style="{
+            fontSize: `${Math.min(16, ROW_H)}px`,
+            lineHeight: `${Math.min(16, ROW_H)}px`,
+          }"
+        >
+          ⠿
+        </span>
       </button>
       <!-- 当前行右侧的行操作：绝对定位浮在文字上，不占任何布局空间；
            只在指针停在这一行时露头（鼠标指哪就说明在看哪），拖拽中藏起来免得误点 -->
