@@ -38,15 +38,18 @@ async function expectColor(page: Page, index: number, color: string, message?: s
 async function openPalette(page: Page, index: number) {
   await caretTo(page, index, 0);
   await hoverRow(page, index);
-  await page.getByRole("button", { name: "行颜色" }).click();
+  await page.getByRole("button", { name: "行颜色", exact: true }).click();
   return page.getByRole("dialog", { name: "行颜色" });
 }
 
 test.describe("行颜色", () => {
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
-    // 同文件共用一个 WebView profile：颜色偏好不复位会串用例
-    await page.evaluate(() => localStorage.removeItem("dnote:line-colors:main"));
+    // 同文件共用一个 WebView profile：颜色偏好与显示开关不复位会串用例
+    await page.evaluate(() => {
+      localStorage.removeItem("dnote:line-colors:main");
+      localStorage.removeItem("dnote:show-line-colors");
+    });
     await page.reload();
   });
 
@@ -73,6 +76,24 @@ test.describe("行颜色", () => {
     const again = await openPalette(page, 1);
     await again.getByRole("button", { name: "默认" }).click();
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
+  });
+
+  test("标题条开关：隐藏后不画细线，重载仍隐藏，再点恢复", async ({ page }) => {
+    const palette = await openPalette(page, 1);
+    await palette.getByRole("button", { name: "红" }).click();
+    await expectColor(page, 1, RED);
+
+    const toggle = page.getByRole("button", { name: "行颜色显示" });
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
+
+    // 开关本身也是一条偏好：重载后仍隐藏，颜色没丢
+    await page.reload();
+    await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
+    await page.getByRole("button", { name: "行颜色显示" }).click();
+    await expectColor(page, 1, RED);
   });
 
   test("删掉有色行不串到下一行；Alt+↓ 移动时颜色跟着行走", async ({ page }) => {

@@ -33,6 +33,7 @@ import {
   lineHeightRatio,
   setLineHeightRatio,
 } from "@/features/settings/lineHeight";
+import { setShowLineColors, showLineColors } from "@/features/settings/lineColorsVisible";
 import type { Theme } from "@/features/settings/themes";
 import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
 import {
@@ -76,6 +77,11 @@ async function setPin(on: boolean) {
 
 function togglePin() {
   void setPin(!alwaysOnTop.value);
+}
+
+/// 行颜色显示开关：只影响“画不画行下细线”，颜色本身留在 localStorage 里，重新打开原样回来
+function toggleLineColors() {
+  setShowLineColors(!showLineColors.value);
 }
 
 // 启动时始终按解析结果应用一次（未存过 = 沿用窗口配置的默认值「置顶」）。
@@ -169,7 +175,7 @@ function confirmImport(): void {
 /// 为什么不能只靠 `:hover`：点 `-` 缩进托盘时指针就停在按钮上，WebView2 不会补 `pointerleave`；
 /// 窗口重新显示时系统也不会补 `WM_MOUSEMOVE`（光标没动过），于是 `:hover` 命中一直挂着 ——
 /// 表现就是"缩进托盘再唤回，那颗按钮还亮着"。自绘后只由"指针真的又进来过"决定。
-type HeaderKey = "help" | "pin" | "settings" | "hide";
+type HeaderKey = "help" | "lineColors" | "pin" | "settings" | "hide";
 const hoveredKey = ref<HeaderKey | null>(null);
 
 /// 标题条按钮配色：常亮（浮层开着 / 已置顶）或正被悬停 → 亮色；悬停再加一层薄纱底
@@ -387,6 +393,35 @@ function onVisibilityChange(): void {
         @click="toggleOverlay('help')"
       >
         ?
+      </button>
+      <!-- 行颜色显示开关（眼睛 + 底线）：默认开；关掉只是不画行下细线，颜色仍按行号保留。
+           无快捷键，title 不带快捷键后缀。 -->
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded transition"
+        :class="headerBtnClass('lineColors', showLineColors)"
+        :title="showLineColors ? '隐藏行颜色' : '显示行颜色'"
+        aria-label="行颜色显示"
+        :aria-pressed="showLineColors"
+        @pointerenter="hoveredKey = 'lineColors'"
+        @pointerleave="hoveredKey = null"
+        @click="toggleLineColors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M2 9s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 9 2 9Z" />
+          <circle cx="12" cy="9" r="2.5" />
+          <path d="M4 20h16" />
+        </svg>
       </button>
       <button
         type="button"

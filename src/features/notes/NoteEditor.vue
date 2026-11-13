@@ -25,6 +25,7 @@ import {
   useLineColors,
   type LineColor,
 } from "@/features/settings/lineColors";
+import { showLineColors } from "@/features/settings/lineColorsVisible";
 import type { Panel } from "@/features/notes/useNotes";
 import { useNotes } from "@/features/notes/useNotes";
 import { log } from "@/utils/logger";
@@ -430,12 +431,15 @@ const lineColors = useLineColors(props.panel);
 /// 色板对哪一行开着（null = 关）；位置在开的时候按按钮实测一次（fixed 浮层，不受滚动裁剪）
 const paletteFor = ref<number | null>(null);
 const palettePos = ref({ x: 0, y: 0 });
-/// 有颜色的行：按实测行盒画行下细线（几何一律读镜像，与当前行高亮同一套）
+/// 有颜色的行：按实测行盒画行下细线（几何一律读镜像，与当前行高亮同一套）。
+/// 标题条上的全局开关关掉时整层不画 —— 颜色仍按行号留在 localStorage，重新打开原样回来。
 const coloredBars = computed(() =>
-  lines.value.flatMap((_, index) => {
-    const color = lineColors.colorAt(index);
-    return color === null ? [] : [{ index, color }];
-  }),
+  showLineColors.value
+    ? lines.value.flatMap((_, index) => {
+        const color = lineColors.colorAt(index);
+        return color === null ? [] : [{ index, color }];
+      })
+    : [],
 );
 /// 结构性编辑已经自己搬过颜色了，别让随之而来的 `input` 再搬一次
 let skipColorReconcile = false;
