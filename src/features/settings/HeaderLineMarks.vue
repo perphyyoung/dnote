@@ -12,6 +12,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { menuPosition } from "@/features/notes/logic";
 import type { Panel } from "@/features/notes/useNotes";
 import { LINE_COLORS, type LineColor } from "@/features/settings/lineColors";
+import { showLineColors } from "@/features/settings/lineColorsVisible";
 import { useLineMarks } from "@/features/settings/lineMarks";
 
 const props = defineProps<{ panel: Panel; line: number }>();
@@ -66,6 +67,11 @@ watch(
   },
 );
 
+/// 行颜色显示开关关掉时入口也收起（选了却看不到细线 = 操作没反馈）；色板若开着一起收
+watch(showLineColors, (on) => {
+  if (!on) paletteOpen.value = false;
+});
+
 /// 点组件外任意处 / `Esc` 都收起（组件根上 `pointerdown.stop`，点自己不会误收）
 function onDocumentPointerDown(): void {
   paletteOpen.value = false;
@@ -107,8 +113,10 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <!-- 行颜色：圆形色块就是当前颜色（默认 = 空心圆）。 -->
+    <!-- 行颜色：圆形色块就是当前颜色（默认 = 空心圆）。
+         显示开关关掉时入口一并隐藏 —— 否则选了颜色也看不到细线，操作没有反馈。 -->
     <button
+      v-if="showLineColors"
       type="button"
       class="flex h-6 w-6 items-center justify-center rounded transition hover:bg-[var(--note-fg-veil)]"
       aria-label="行颜色"

@@ -78,21 +78,29 @@ test.describe("行颜色", () => {
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
   });
 
-  test("标题条开关：隐藏后不画细线，重载仍隐藏，再点恢复", async ({ page }) => {
+  test("标题条开关：隐藏后不画细线，色板入口一并隐藏，重载仍隐藏，再点恢复", async ({ page }) => {
     const palette = await openPalette(page, 1);
     await palette.getByRole("button", { name: "红" }).click();
     await expectColor(page, 1, RED);
 
     const toggle = page.getByRole("button", { name: "行颜色显示" });
+    const colorEntry = page.getByRole("button", { name: "行颜色", exact: true });
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
 
+    // 点右侧开关会让编辑器失焦，重新定位一行再看中间入口：星标在、行颜色不在
+    await caretTo(page, 1, 0);
+    await expect(page.getByRole("button", { name: "星标当前行" })).toBeVisible();
+    await expect(colorEntry).toHaveCount(0);
+
     // 开关本身也是一条偏好：重载后仍隐藏，颜色没丢
     await page.reload();
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
     await page.getByRole("button", { name: "行颜色显示" }).click();
+    await caretTo(page, 1, 0);
+    await expect(colorEntry).toBeVisible();
     await expectColor(page, 1, RED);
   });
 
