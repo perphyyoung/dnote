@@ -18,6 +18,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .commands(tauri_specta::collect_commands![
             commands::notes::load_notes,
             commands::notes::save_notes,
+            commands::clipboard::copy_text_with_colors,
+            commands::clipboard::read_clipboard,
             commands::autostart::set_autostart,
             commands::hotkey::set_hotkey,
             commands::backup::export_notes_backup,

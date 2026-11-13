@@ -19,6 +19,14 @@ import {
 } from "@/features/notes/logic";
 import ContextMenu from "@/features/notes/ContextMenu.vue";
 import {
+  colorsAfterPaste,
+  decodePayload,
+  encodePayload,
+  lineCount,
+  lineIndexOf,
+} from "@/features/notes/clipboard";
+import { commands } from "@/bindings";
+import {
   LINE_COLORS,
   remapColors,
   spliceColors,
@@ -631,41 +639,127 @@ function collapseAllBlankLines(): void {
 }
 
 /**
+ * 写剪贴板：优先走后端的「文字 + 行颜色私有格式」；失败就退回纯文字，
+ * 颜色丢掉但复制本身不失败（剪贴板可能被安全软件限制）。
+ */
+async function writeClipboard(text: string, colors: readonly LineColor[]): Promise<boolean> {
+  try {
+    await commands.copyTextWithColors(text, encodePayload(text, colors));
+    return true;
+  } catch (e) {
+    log.warn(`[notes] 带色复制失败，回落到纯文字：${String(e)}`);
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    log.error(`[notes] 纯文字复制也失败：${String(e)}`);
+    return false;
+  }
+}
+
+/**
  * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：行内按钮与右键菜单共用
- * （快捷键不管复制 —— 那是浏览器原生的 `Ctrl+C`，见 `design.md` 选择与复制）。
- * 优先异步剪贴板 API；它在权限 / 焦点不满足时会抛，于是回落到「临时选中这几行 + execCommand("copy")」
- * 并把原选区还回去 —— 两条路都留着，避免环境差异变成静默失败。
- * **返回是否真的复制成功**：行内按钮据此给对勾 / 叉（见 `copyFeedback`）。
+ * （快捷键走 textarea 的 copy 事件，见 `onCopy`）。
+ * 带色复制失败时回落到纯文字；都失败才返回 false（按钮据此给对勾 / 叉）。
  */
 async function copyLines(first: number, last: number): Promise<boolean> {
   const el = editor.value;
   if (!el || first < 0 || last >= lines.value.length) return false;
   const text = lines.value.slice(first, last + 1).join("\n");
-  let ok: boolean;
-  try {
-    await navigator.clipboard.writeText(text);
-    ok = true;
-  } catch (e) {
-    const start = lineRange(el.value, first).start;
-    const end = lineRange(el.value, last).end;
-    const restore = el.selectionStart;
-    el.setSelectionRange(start, end);
-    ok = document.execCommand("copy");
-    el.setSelectionRange(restore, restore);
-    log.warn(
-      `[notes] 剪贴板 API 不可用，已回落 execCommand（${ok ? "成功" : "失败"}）：${String(e)}`,
+  const colors = lines.value
+    .slice(first, last + 1)
+    .map((_, offset) => lineColors.colorAt(first + offset));
+  if (await writeClipboard(text, colors)) {
+    log.info(
+      first === last
+        ? `[notes] 已复制第 ${first + 1} 行`
+        : `[notes] 已复制第 ${first + 1}–${last + 1} 行`,
     );
+    return true;
   }
-  if (!ok) {
+  // 最后一条路：临时选中这几行 + execCommand("copy")，只带文字
+  const start = lineRange(el.value, first).start;
+  const end = lineRange(el.value, last).end;
+  const restore = el.selectionStart;
+  el.setSelectionRange(start, end);
+  const ok = document.execCommand("copy");
+  el.setSelectionRange(restore, restore);
+  if (ok) {
+    log.info("[notes] 已回落 execCommand 复制（不带行颜色）");
+  } else {
     log.error("[notes] 复制失败：两条剪贴板路径都没成");
-    return false;
   }
-  log.info(
-    first === last
-      ? `[notes] 已复制第 ${first + 1} 行`
-      : `[notes] 已复制第 ${first + 1}–${last + 1} 行`,
+  return ok;
+}
+
+/**
+ * Ctrl+C：有选区就接管，把每行颜色一起写进剪贴板；没有选区交回浏览器原生
+ * （原生在空选区下本来就什么也不复制）。
+ */
+function onCopy(e: ClipboardEvent): void {
+  const el = editor.value;
+  if (!el || el.selectionStart === el.selectionEnd) return;
+  const text = el.value.slice(el.selectionStart, el.selectionEnd);
+  if (text === "") return;
+  e.preventDefault();
+  const startLine = lineIndexOf(el.value, el.selectionStart);
+  const colors = Array.from({ length: lineCount(text) }, (_, offset) =>
+    lineColors.colorAt(startLine + offset),
   );
-  return true;
+  void writeClipboard(text, colors);
+}
+
+/**
+ * Ctrl+V：先拦下原生粘贴（私有格式要异步读），再按载荷决定：
+ * - 有效且是整行替换 → `applyEdit`，文本、光标、颜色一起进撤销栈；
+ * - 否则 → `insertText` 只贴文字，保持原生手感。
+ * `clipboardData` 里同步拿到的文字是兜底：后端读失败也不至于粘不进来。
+ */
+function onPaste(e: ClipboardEvent): void {
+  if (!editor.value) return;
+  const fallback = (e.clipboardData?.getData("text") ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  e.preventDefault();
+  void pasteFromClipboard(fallback);
+}
+
+async function pasteFromClipboard(fallback: string): Promise<void> {
+  const el = editor.value;
+  if (!el) return;
+  const start = el.selectionStart;
+  const end = el.selectionEnd;
+
+  let text = fallback;
+  let colors: LineColor[] | null = null;
+  try {
+    const read = await commands.readClipboard();
+    if (read.text !== "") text = read.text;
+    colors = decodePayload(read.payload, text);
+  } catch (e) {
+    log.warn(`[notes] 读取剪贴板失败，按纯文字粘贴：${String(e)}`);
+  }
+  if (text === "") return;
+
+  const oldText = el.value;
+  if (colors) {
+    const nextText = oldText.slice(0, start) + text + oldText.slice(end);
+    const nextColors = colorsAfterPaste({
+      oldText,
+      newText: nextText,
+      selectionStart: start,
+      selectionEnd: end,
+      oldColors: lineColors.colors.value,
+      pasted: colors,
+    });
+    if (nextColors) {
+      const caret = start + text.length;
+      applyEdit(nextText, { start: caret, end: caret }, start, nextColors);
+      return;
+    }
+  }
+  document.execCommand("insertText", false, text);
 }
 
 /**
@@ -1204,6 +1298,8 @@ function flashDropped(first: number, last: number): void {
       :value="content"
       @input="onInput"
       @keydown="onKeydown"
+      @copy="onCopy"
+      @paste="onPaste"
       @focus="syncCaretLine"
       @blur="onBlur"
       @contextmenu="onContextMenu"

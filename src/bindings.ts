@@ -10,6 +10,19 @@ export const commands = {
 	/**  整文件重写某块面板（临时文件 + rename 原子替换）。另一块面板的文件不碰。 */
 	saveNotes: (panel: Panel, lines: string[]) => __TAURI_INVOKE<null>("save_notes", { panel, lines }),
 	/**
+	 *  复制文本，附带可选的 JSON 载荷（行颜色）。
+	 * 
+	 *  载荷写失败只记日志、不向上报错：文字已经进了剪贴板，用户至少能正常复制；
+	 *  颜色丢掉是可接受的降级（例如剪贴板被安全软件限制）。
+	 */
+	copyTextWithColors: (text: string, payload: string | null) => __TAURI_INVOKE<null>("copy_text_with_colors", { text, payload }),
+	/**
+	 *  读剪贴板：文字（CRLF → LF）与可选的行颜色载荷。
+	 * 
+	 *  文字读不到就返回空串（前端会回落到 `clipboardData` 里同步拿到的那份）。
+	 */
+	readClipboard: () => __TAURI_INVOKE<ClipboardRead>("read_clipboard"),
+	/**
 	 *  应用开机自启设置，并**回读实际状态**（前端据此判断要不要回滚开关）。
 	 * 
 	 *  不允许动注册表时**原样回显 `on`**（不读注册表）：那是「本环境不生效」，不是「设置失败」——
@@ -47,6 +60,12 @@ export const events = {
 export type BackupNotes = {
 	main: string[],
 	secondary: string[],
+};
+
+/**  读出来的剪贴板内容：文字已统一成 LF；载荷是前端 JSON 原文，Rust 不解析字段。 */
+export type ClipboardRead = {
+	text: string,
+	payload: string | null,
 };
 
 /**  日志级别变更事件（payload 为新级别小写字符串），前端监听后刷新本地缓存。 */

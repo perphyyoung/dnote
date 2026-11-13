@@ -37,3 +37,10 @@ zip = { version = "=4.6.1", default-features = false, features = ["deflate"] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "javascript", "typescript"] }
 specta = "=2.0.0-rc.25"
 specta-typescript = "=0.0.12"
+# 剪贴板自定义格式（行颜色随复制携带）：直接调 Windows API。
+# 版本与 Cargo.lock 里已有的传递依赖一致，不新增一份编译；只开这三个特性。
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
