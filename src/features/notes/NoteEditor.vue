@@ -425,12 +425,12 @@ let structural: {
   depth: number;
 } | null = null;
 
-// ── 行颜色：左侧强调条 + 行内操作条里的色板 ───────────────────────────────────
+// ── 行颜色：行下 1px 细线 + 行内操作条里的色板 ─────────────────────────────────
 const lineColors = useLineColors(props.panel);
 /// 色板对哪一行开着（null = 关）；位置在开的时候按按钮实测一次（fixed 浮层，不受滚动裁剪）
 const paletteFor = ref<number | null>(null);
 const palettePos = ref({ x: 0, y: 0 });
-/// 有颜色的行：按实测行盒画强调条（几何一律读镜像，与当前行高亮同一套）
+/// 有颜色的行：按实测行盒画行下细线（几何一律读镜像，与当前行高亮同一套）
 const coloredBars = computed(() =>
   lines.value.flatMap((_, index) => {
     const color = lineColors.colorAt(index);
@@ -933,17 +933,19 @@ function flashDropped(first: number, last: number): void {
           height: `${boxHeight(caretIndex)}px`,
         }"
       />
-      <!-- 行颜色：左侧 2px 强调条，按实测行盒绘制（折行时铺满整块）。画在"当前行"之后，
-           于是当前行既被标记过颜色时看到的是**那个颜色**，当前行的极淡底色照旧在。 -->
+      <!-- 行颜色：行盒下沿 1px 同色细线（右端渐隐），按实测行盒绘制（折行时贴块底）。
+           画在"当前行"之后，于是当前行被标记过颜色时看到的是**那个颜色**，当前行的极淡底色照旧在。 -->
       <div
         v-for="bar in coloredBars"
         :key="bar.index"
-        class="absolute border-l-2"
-        :data-line-color="bar.index"
+        class="absolute"
+        :data-line-color-underline="bar.index"
         :style="{
-          borderColor: bar.color,
-          top: `${boxTop(bar.index)}px`,
-          height: `${boxHeight(bar.index)}px`,
+          backgroundImage: `linear-gradient(to right, color-mix(in srgb, ${bar.color} 80%, transparent), transparent 100%)`,
+          top: `${boxTop(bar.index) + boxHeight(bar.index)}px`,
+          left: `${HANDLE_W}px`,
+          right: '6px',
+          height: '1px',
         }"
       />
     </div>
