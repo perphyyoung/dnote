@@ -11,7 +11,6 @@ import { expect, type Page } from "@playwright/test";
 import {
   caretTo,
   editor,
-  hoverRow,
   mirrorBoxes,
   rightClickLine,
   rowHeight,
@@ -109,8 +108,7 @@ test.describe("行颜色", () => {
     await palette.getByRole("button", { name: "蓝" }).click();
     await expectColor(page, 1, BLUE);
 
-    // 行内「删除当前行」：删掉第 2 行后，原来的第 3 行顶上来但不该继承蓝色
-    await hoverRow(page, 1);
+    // 标题条「删除当前行」：删掉第 2 行后，原来的第 3 行顶上来但不该继承蓝色
     await page.getByRole("button", { name: "删除当前行" }).click();
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
 

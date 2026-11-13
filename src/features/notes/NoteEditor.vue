@@ -87,14 +87,6 @@ watch(caretIndex, (line) => {
   emit("locate", line === null ? null : { panel: props.panel, line });
 });
 
-/** 当前行右侧的行操作按钮：只在指针停在当前行上时露头 —— 鼠标指哪，就说明在看哪 */
-const showRowActions = computed(
-  () => drag.value === null && caretIndex.value !== null && hoverIndex.value === caretIndex.value,
-);
-
-/** 渲染用的行号（模板里不必再处理 null） */
-const currentLine = computed(() => caretIndex.value ?? 0);
-
 /** 松手后落点闪一下给个「落在这儿了」的收尾（整块：首末行都圈上） */
 const droppedRange = ref<{ first: number; last: number } | null>(null);
 let dropTimer: ReturnType<typeof setTimeout> | null = null;
@@ -219,7 +211,7 @@ const showInsertLine = computed(() => {
   return d !== null && (d.insert < d.first || d.insert > d.last + 1);
 });
 
-// ── 当前行（光标所在行）：高亮与右侧行操作按钮都以它为目标 ──────────────────
+// ── 当前行（光标所在行）：高亮以它为目标，标题条的行操作也由它定位 ──────────────
 /**
  * 跟随光标刷新当前行。`selectionchange` 是唯一能全覆盖的信号（打字、方向键、鼠标点击、
  * 撤销 / 重做都会触发），但它触发极频繁 —— 所以只在行号真的变了、或焦点进出时才写 ref。
@@ -259,7 +251,6 @@ onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
-  if (copyTimer !== null) clearTimeout(copyTimer);
   document.body.classList.remove("dragging");
 });
 
@@ -289,7 +280,7 @@ function onScrollerDown(e: PointerEvent): void {
   const el = scroller.value;
   const area = editor.value;
   if (!el || !area) return;
-  if (e.target !== el) return; // textarea 内部 / 手柄 / 行操作按钮各有各的处理，一律让出
+  if (e.target !== el) return; // textarea 内部 / 手柄各有各的处理，一律让出
   const rect = el.getBoundingClientRect();
   // 右侧滚动条也以容器为事件目标：不排除它的话，在滚动条上按下会被 preventDefault 打断拖动
   const scrollbar = el.offsetWidth - el.clientWidth;
@@ -368,7 +359,7 @@ function onHandleUp(): void {
   const next = moveBlock(lines.value, d.first, d.last, to).join("\n");
   // 落点（光标 / 选区）由纯函数算：多行整块搬移保留选区并整体平移，单行让光标跟着同一行内容走
   const target = dropSelection(text, next, d.first, d.last, to, el.selectionStart, el.selectionEnd);
-  // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
+  // 与 Ctrl+D / Alt+↑↓ / 标题条删除同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
   // 于是**拖拽也能 Ctrl+Z 撤回**，光标 / 选区也由它一次设到位。
   const padded = paddedMarks();
   applyEdit(next, target, from, {
@@ -640,7 +631,7 @@ async function writeClipboard(text: string, snapshot: LineMarksSnapshot): Promis
 }
 
 /**
- * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：行内按钮与右键菜单共用
+ * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：标题条复制按钮与右键菜单共用
  * （快捷键走 textarea 的 copy 事件，见 `onCopy`）。
  * 带标记复制失败时回落到纯文字；都失败才返回 false（按钮据此给对勾 / 叉）。
  */
@@ -746,33 +737,9 @@ async function pasteFromClipboard(fallback: string): Promise<void> {
   document.execCommand("insertText", false, text);
 }
 
-/**
- * 复制的**原地短反馈**（1.2s）：按钮图标临时换成对勾 / 叉，尺寸与位置都不变 ——
- * 不新增浮层（行尾已经够挤，见 `design.md`「行内操作」的已知代价）。
- * 反馈绑在「发起时那一行」上：换行后 `copyState` 自然变 null，不会把对勾留在别的行。
- */
-const copyFeedback = ref<{ line: number; ok: boolean } | null>(null);
-let copyTimer: ReturnType<typeof setTimeout> | null = null;
-
-const copyState = computed<"ok" | "fail" | null>(() => {
-  const feedback = copyFeedback.value;
-  if (feedback === null || feedback.line !== currentLine.value) return null;
-  return feedback.ok ? "ok" : "fail";
-});
-
-function flashCopyFeedback(line: number, ok: boolean): void {
-  copyFeedback.value = { line, ok };
-  if (copyTimer !== null) clearTimeout(copyTimer);
-  copyTimer = setTimeout(() => {
-    copyTimer = null;
-    copyFeedback.value = null;
-  }, 1_200);
-}
-
-/// 行内「复制当前行」：先写剪贴板，再把结果反馈到按钮上
-async function copyCurrentLine(): Promise<void> {
-  const line = currentLine.value;
-  flashCopyFeedback(line, await copyLines(line, line));
+/// 标题条「复制当前行」调它：整行复制（带颜色 / 星标），返回是否成功（反馈由外壳显示）
+async function copyLine(index: number): Promise<boolean> {
+  return copyLines(index, index);
 }
 
 // ── 右键菜单：复制 / 删除（多行时作用于整个选区）────────────────────────────────
@@ -947,7 +914,7 @@ function replaceAll(text: string): void {
   applyEdit(text, { start: 0, end: 0 }, 0);
 }
 
-defineExpose({ replaceAll });
+defineExpose({ replaceAll, copyLine, deleteLineAt });
 
 // ── 拖到边缘自动滚动（长笔记必需，否则拖不到窗口外的行）────────────────────
 let raf = 0;
@@ -1042,8 +1009,8 @@ function flashDropped(first: number, last: number): void {
       />
     </div>
 
-    <!-- 行手柄层 / 行操作按钮层 / 源行罩 / 落点闪：压在文字**之上**（按钮要可点）。
-         整层 pointer-events:none，只有手柄与按钮自己可点 —— 别挡住 textarea 的点击与落光标。
+    <!-- 行手柄层 / 源行罩 / 落点闪：压在文字**之上**（手柄要可点）。
+         整层 pointer-events:none，只有手柄自己可点 —— 别挡住 textarea 的点击与落光标。
          插入线**不在**这一层：它得压过幽灵行，单独开了 z-[60] 的层（见下）。 -->
     <div
       class="pointer-events-none absolute inset-x-0 top-0 z-20"
@@ -1141,111 +1108,6 @@ function flashDropped(first: number, last: number): void {
           ⠿
         </span>
       </button>
-      <!-- 当前行右侧的行操作：绝对定位浮在文字上，不占任何布局空间；
-           只在指针停在这一行时露头（鼠标指哪就说明在看哪），拖拽中藏起来免得误点 -->
-      <!-- 按钮本身仍是一行高（不该在长行上变胖），所以放在行盒里**竖直居中**。
-           `right: 24px` 是给**次级面板那颗圆把手**让位：它圆心锚在主面板右边界、直径 20px，
-           贴着右缘（关闭态）正好占到 x ∈ [W−20, W]，所以按钮组右缘要退到 W−24 才留得出缝
-           （两者都靠右，只能让按钮组让开；代价见 design.md「行内操作」）。 -->
-      <div
-        v-if="showRowActions"
-        class="absolute flex items-center gap-0.5"
-        :style="{
-          top: `${boxTop(currentLine) + (boxHeight(currentLine) - ROW_H) / 2}px`,
-          right: '24px',
-          height: `${ROW_H}px`,
-        }"
-      >
-        <button
-          type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
-          aria-label="复制当前行"
-          title="复制当前行"
-          :data-copy-state="copyState ?? undefined"
-          @mousedown.prevent
-          @click="copyCurrentLine()"
-        >
-          <!-- 成功 → 绿色对勾（emerald-600：与设置面板开关同一档，浅色底上也看得清）；
-               失败 → 叉（rose-500，与删除 hover 同一支红色）。颜色只挂在图标上，
-               避开与按钮底色 / 描边那两族 utility 抢同一属性。 -->
-          <svg
-            v-if="copyState === 'ok'"
-            class="text-emerald-600"
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
-          <svg
-            v-else-if="copyState === 'fail'"
-            class="text-rose-500"
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-          <svg
-            v-else
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
-            <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-          </svg>
-        </button>
-        <!-- 屏幕阅读器播报（按钮的 `aria-label` 保持不变：语义定位与语音控制都靠它） -->
-        <span class="sr-only" aria-live="polite">
-          {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
-        </span>
-        <button
-          type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-rose-500 hover:ring-[var(--note-fg-faint)]"
-          aria-label="删除当前行"
-          title="删除当前行 (Ctrl+D)"
-          @mousedown.prevent
-          @click="deleteLineAt(currentLine)"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M3 6h18" />
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            <line x1="10" x2="10" y1="11" y2="17" />
-            <line x1="14" x2="14" y1="11" y2="17" />
-          </svg>
-        </button>
-      </div>
     </div>
 
     <!-- 插入线：**单独一层、z 高过幽灵行（50）** —— 幽灵行是整条通宽实色、又总压在这一条 28px

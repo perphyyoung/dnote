@@ -43,7 +43,7 @@ onMounted(() => {
 <template>
   <!-- 两个修饰符都是必需的：
        - `@pointerdown.stop`：否则"点别处收起"会先把我们摘掉，菜单项的 `click` 再也收不到；
-       - `@mousedown.prevent`：不抢 textarea 的焦点（与行内按钮同款）—— 否则按下那一下编辑器先
+       - `@mousedown.prevent`：不抢 textarea 的焦点（与标题条按钮同款）—— 否则按下那一下编辑器先
          `blur`，`onBlur` 会把菜单收掉，`click` 同样到不了按钮（踩过）。 -->
   <div
     ref="root"

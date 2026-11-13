@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /**
- * 标题条的「行标记」入口：星标 + 行颜色，作用于**当前定位行**。
+ * 标题条的行操作：**复制 / 星标 / 行颜色 / 删除**，都作用于**当前定位行**。
  *
- * 两个入口共用一套生命周期（有行才出现、失焦即收），所以放在同一组件里 —— 外壳只需在
- * 定位到行时渲染它，不必各写一遍显示条件与状态。
+ * 四个入口共用一套生命周期（有行才出现、失焦即收），所以放在同一组件里 —— 外壳只需在
+ * 定位到行时渲染它，不必各写一遍显示条件与状态。复制 / 删除的动作本体在 `NoteEditor`
+ * （那里才有文本、行标记与撤销栈），这里只负责按钮与复制反馈。
  *
  * 按钮一律 `mousedown.prevent`：点下去不能把编辑器焦点夺走，否则 `locate` 先变 null、
  * 这个组件会先被卸载，点击就落空了。
@@ -15,7 +16,16 @@ import { LINE_COLORS, type LineColor } from "@/features/settings/lineColors";
 import { showLineColors } from "@/features/settings/lineColorsVisible";
 import { useLineMarks } from "@/features/settings/lineMarks";
 
-const props = defineProps<{ panel: Panel; line: number }>();
+const props = defineProps<{
+  panel: Panel;
+  line: number;
+  /// 复制按钮的原地反馈（由外壳按 `{panel, line}` 绑定，换行即失效）
+  copyState: "ok" | "fail" | null;
+}>();
+const emit = defineEmits<{
+  (e: "copy"): void;
+  (e: "delete"): void;
+}>();
 
 /// 面板在定位切换时可能变（主 → 次级），所以按 prop 取当前那一份 store
 const marks = computed(() => useLineMarks(props.panel));
@@ -94,10 +104,68 @@ onUnmounted(() => {
 
 <template>
   <div class="flex shrink-0 items-center gap-1" @pointerdown.stop>
+    <!-- 复制当前行：成功 → 绿色对勾，失败 → 红色叉，1.2s 后自动复原。 -->
+    <button
+      type="button"
+      class="flex h-6 w-6 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-[var(--note-fg)]"
+      aria-label="复制当前行"
+      title="复制当前行"
+      :data-copy-state="copyState ?? undefined"
+      @mousedown.prevent
+      @click="emit('copy')"
+    >
+      <svg
+        v-if="copyState === 'ok'"
+        class="text-emerald-600"
+        xmlns="http://www.w3.org/2000/svg"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M20 6 9 17l-5-5" />
+      </svg>
+      <svg
+        v-else-if="copyState === 'fail'"
+        class="text-rose-500"
+        xmlns="http://www.w3.org/2000/svg"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
+      </svg>
+      <svg
+        v-else
+        xmlns="http://www.w3.org/2000/svg"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+      </svg>
+    </button>
+
     <!-- 星标：黄色是唯一形态；再点一次取消。 -->
     <button
       type="button"
-      class="flex h-6 w-6 items-center justify-center rounded transition"
+      class="flex h-6 w-6 items-center justify-center rounded transition hover:bg-[var(--note-fg-veil)]"
       :class="starred ? 'text-[var(--note-fg)]' : 'text-[var(--note-fg-faint)]'"
       :style="starred ? { color: '#eab308' } : undefined"
       :title="starred ? `取消星标第 ${line + 1} 行` : `星标第 ${line + 1} 行`"
@@ -131,6 +199,39 @@ onUnmounted(() => {
         :style="{ backgroundColor: color ?? 'transparent' }"
       />
     </button>
+
+    <!-- 删除当前行：与 Ctrl+D / 右键菜单同一条实现，直接删、靠 Ctrl+Z 兜底。 -->
+    <button
+      type="button"
+      class="flex h-6 w-6 items-center justify-center rounded text-[var(--note-fg-faint)] transition hover:bg-[var(--note-fg-veil)] hover:text-rose-500"
+      aria-label="删除当前行"
+      title="删除当前行 (Ctrl+D)"
+      @mousedown.prevent
+      @click="emit('delete')"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M3 6h18" />
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+        <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+        <line x1="10" x2="10" y1="11" y2="17" />
+        <line x1="14" x2="14" y1="11" y2="17" />
+      </svg>
+    </button>
+
+    <!-- 屏幕阅读器播报（按钮的 `aria-label` 保持不变：语义定位与语音控制都靠它） -->
+    <span class="sr-only" aria-live="polite">
+      {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
+    </span>
 
     <!-- 色板：fixed 浮层（z-40，与右键菜单同档）。第一项「默认」= 清掉这一行的颜色。 -->
     <div

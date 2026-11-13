@@ -310,7 +310,7 @@ export function caretPosition(page: Page): Promise<number> {
   return editor(page).evaluate((el) => (el as HTMLTextAreaElement).selectionStart);
 }
 
-/// 把指针停在第 line 行上。行操作按钮只在「指针停在当前行」时显形，断言它出现 / 收起要用它。
+/// 把指针停在第 line 行上。手柄显形、星标让位等悬停行为要靠它；行操作已移到标题条，不再依赖悬停。
 /// 行位置直接借手柄的包围盒（手柄就是按行定位的），免得在测试里再抄一份行高常量。
 export async function hoverRow(page: Page, line: number): Promise<void> {
   const box = await lineHandles(page).nth(line).boundingBox();

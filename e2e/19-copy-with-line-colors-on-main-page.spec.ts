@@ -9,7 +9,6 @@ import { expect, type Page } from "@playwright/test";
 import {
   caretTo,
   editor,
-  hoverRow,
   readClipboard,
   seedLines,
   setClipboard,
@@ -82,10 +81,9 @@ test.describe("带色复制粘贴", () => {
     await expect(lineStar(page, 3), "星标应随文字一起粘到新行").toHaveCount(1);
   });
 
-  test("行内「复制当前行」也带颜色与星标", async ({ page }) => {
+  test("标题条「复制当前行」也带颜色与星标", async ({ page }) => {
     await paint(page, 1, "蓝");
     await star(page, 1);
-    await hoverRow(page, 1);
 
     await withClipboard(async () => {
       await page.getByRole("button", { name: "复制当前行" }).click();

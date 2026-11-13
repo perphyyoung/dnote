@@ -85,12 +85,56 @@ function toggleLineColors() {
   setShowLineColors(!showLineColors.value);
 }
 
-/// 最近一次定位到的行（光标所在行）：标题条的行标记入口只在有它时出现，失焦即收
+/// 最近一次定位到的行（光标所在行）：标题条的行操作入口只在有它时出现，失焦即收
 const located = ref<{ panel: Panel; line: number } | null>(null);
+
+/// 标题条复制按钮的原地反馈：绑 `{panel, line}`，换行 / 失焦即失效
+const copyFeedback = ref<{ panel: Panel; line: number; ok: boolean } | null>(null);
+let copyTimer: ReturnType<typeof setTimeout> | null = null;
 
 function onLocate(payload: { panel: Panel; line: number } | null): void {
   located.value = payload;
 }
+
+/// 定位行所属的编辑器实例（次级面板收起时可能取不到）
+function locatedEditor(): InstanceType<typeof NoteEditor> | null {
+  const target = located.value;
+  if (target === null) return null;
+  return target.panel === "main" ? mainEditor.value : secondaryEditor.value;
+}
+
+/// 复制当前定位行：动作本体在 `NoteEditor`（要带颜色 / 星标），反馈留在这里显示
+async function onCopyLocated(): Promise<void> {
+  const target = located.value;
+  const editor = locatedEditor();
+  if (target === null || editor === null) return;
+  const ok = await editor.copyLine(target.line);
+  // 复制是异步的：期间换了行就不把对勾挂到新行上
+  if (located.value?.panel !== target.panel || located.value?.line !== target.line) return;
+  copyFeedback.value = { ...target, ok };
+  if (copyTimer !== null) clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => {
+    copyTimer = null;
+    copyFeedback.value = null;
+  }, 1_200);
+}
+
+/// 删除当前定位行：与 `Ctrl+D` / 右键菜单同一条实现，直接删、靠 `Ctrl+Z` 兜底
+function onDeleteLocated(): void {
+  const target = located.value;
+  const editor = locatedEditor();
+  if (target === null || editor === null) return;
+  editor.deleteLineAt(target.line);
+}
+
+/// 只有反馈仍属于当前定位行时才显示在按钮上
+const locatedCopyState = computed<"ok" | "fail" | null>(() => {
+  const feedback = copyFeedback.value;
+  const target = located.value;
+  if (feedback === null || target === null) return null;
+  if (feedback.panel !== target.panel || feedback.line !== target.line) return null;
+  return feedback.ok ? "ok" : "fail";
+});
 
 // 启动时始终按解析结果应用一次（未存过 = 沿用窗口配置的默认值「置顶」）。
 // 不写成「只在取消过时才应用」：页面重载不会重建窗口，窗口的置顶状态会留着，
@@ -337,6 +381,7 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("keydown", onGlobalKeydown);
   document.removeEventListener("visibilitychange", onVisibilityChange);
+  if (copyTimer !== null) clearTimeout(copyTimer);
 });
 
 function hideToTray() {
@@ -385,9 +430,17 @@ function onVisibilityChange(): void {
         dnote
       </span>
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
-      <!-- 行标记入口（星标 + 行颜色）：只在定位到行后出现，失焦即收。夹在两段拖动区中间
-           = 自由区居中，不压右侧图标组。两个入口共用一套显示逻辑，见 HeaderLineMarks。 -->
-      <HeaderLineMarks v-if="located" :panel="located.panel" :line="located.line" />
+      <!-- 行操作入口（复制 / 星标 / 行颜色 / 删除）：只在定位到行后出现，失焦即收。
+           夹在两段拖动区中间 = 自由区居中，不压右侧图标组。四个入口共用一套显示逻辑，
+           动作本体按 `panel` 派给对应编辑器，见 HeaderLineMarks。 -->
+      <HeaderLineMarks
+        v-if="located"
+        :panel="located.panel"
+        :line="located.line"
+        :copy-state="locatedCopyState"
+        @copy="onCopyLocated"
+        @delete="onDeleteLocated"
+      />
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
       <!-- 帮助：与设置同为标题条下方内嵌浮层（同一层遮罩，两者互斥）。位置在图钉左侧，
            浮层则贴窗口右缘 —— 与设置面板同一条口径（见 design.md「帮助面板」）。
@@ -808,10 +861,8 @@ function onVisibilityChange(): void {
         <!-- 次级面板的把手：**圆心锚在主面板右边界**，所以它属于主栏（拖分界线时自己就跟着走了，
              不需要任何监听）。展开态跨在分界线上（`translate-x-1/2`），收起态整圆贴在右缘内侧
              —— 后者是因为圆心若严格落在窗口右缘，右半圆会被窗口裁掉。
-             装进圆里 + 实心底（`--note-bg`）：它压得住底下的文字与行内按钮；贴着主栏右缘，
-             因此会擦到当前行的「删除」按钮（两者都在右缘，做不到完全不重合 —— 直径收到 14px 后
-             按钮的中心点仍在圆外，`e2e` 的语义点击因此不受影响）。
-             与分界线热区（同一位置、`z-30`）：圆在 `z-40`，所以中间那 14px 带点不到分界线（认了）。 -->
+             装进圆里 + 实心底（`--note-bg`）：它压得住底下的文字。
+             与分界线热区（同一位置、`z-30`）：圆在 `z-40`，所以中间那一段点不到分界线（认了）。 -->
         <button
           type="button"
           class="absolute top-1/2 right-0 z-40 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--note-bg)] text-xs leading-none text-[var(--note-fg-faint)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-[var(--note-fg)]"
