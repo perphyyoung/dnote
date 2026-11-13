@@ -38,7 +38,7 @@ export const SECONDARY_DEFAULT_W = 320;
 /** 次级面板的宽度下限：分界线拖到底也留这么宽，否则窗口一窄它就被挤成 0 */
 export const SECONDARY_MIN_W = 200;
 /** 主面板宽度下限：与 `tauri.conf.json` 的 `minWidth` 同一个数（关闭态窗口的下限） */
-export const MAIN_MIN_W = 260;
+export const MAIN_MIN_W = 520;
 /** 高度下限：与 `tauri.conf.json` 的 `minHeight` 同一个数（`setMinSize` 必须宽高一起给） */
 const MIN_H = 200;
 /** 等视口宽度落定的上限（ms）：`setSize` 返回 ≠ WebView 视口已更新，收起时靠它兜一下 */

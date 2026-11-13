@@ -1,6 +1,7 @@
 /**
- * 当前行的行内操作：高亮跟随光标，右侧「复制 / 行颜色 / 删除」按钮浮在这一行上
+ * 当前行的行内操作：高亮跟随光标，右侧「复制 / 删除」按钮浮在这一行上
  * （绝对定位，不占布局空间），且**只在指针停在这一行时**露头。
+ * 行颜色与星标已移到标题条（见 `17` / `20`），行内不再有颜色入口。
  *
  * 断言口径：按钮用 ARIA 名定位；高亮层用 `data-caret-line` 数据属性（不是 class）；
  * 复制要读**真实系统剪贴板**核对内容，并确认文档没被改动。
@@ -69,18 +70,16 @@ test.describe("当前行的行内操作", () => {
     await expect(page.getByRole("button", { name: "删除当前行" })).toHaveCount(0);
   });
 
-  test("三颗按钮从左到右：复制 / 行颜色 / 删除", async ({ page }) => {
+  test("两颗按钮从左到右：复制 / 删除", async ({ page }) => {
     await caretTo(page, 1, 0);
     await hoverRow(page, 1);
 
     const copy = await page.getByRole("button", { name: "复制当前行", exact: true }).boundingBox();
-    const color = await page.getByRole("button", { name: "行颜色", exact: true }).boundingBox();
     const del = await page.getByRole("button", { name: "删除当前行", exact: true }).boundingBox();
-    if (!copy || !color || !del) throw new Error("取不到行内按钮的位置");
+    if (!copy || !del) throw new Error("取不到行内按钮的位置");
 
-    // 复制最高频放最左；删除有破坏性放最右；行颜色夹在中间
-    expect(copy.x).toBeLessThan(color.x);
-    expect(color.x).toBeLessThan(del.x);
+    // 复制最高频放最左；删除有破坏性放最右
+    expect(copy.x).toBeLessThan(del.x);
   });
 
   test("按钮是实底 chip：底不透明、图标与正文同色，hover 只提亮描边", async ({ page }) => {

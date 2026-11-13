@@ -2,22 +2,26 @@
  * 带色复制的载荷与落点映射（纯函数，有单测）。
  *
  * 口径：
- * - 载荷只描述**这次复制的文本**与它覆盖的每行颜色；粘贴时必须文本完全一致才认。
+ * - 载荷只描述**这次复制的文本**与它覆盖的每行标记（颜色 + 星标）；粘贴时必须文本完全一致才认。
  * - 颜色只接受行颜色色板里的值：剪贴板是公开通道，别的程序也能往里写同名格式。
- * - 粘贴套色只支持「从行首开始、在行边界结束」的整行替换；行中粘贴只贴文字，
- *   否则颜色该落在哪一行没有确定答案。
+ * - 粘贴套标记只支持「从行首开始、在行边界结束」的整行替换；行中粘贴只贴文字，
+ *   否则标记该落在哪一行没有确定答案。
+ * - v1 载荷（只有颜色）仍认：星标一律视为没有 —— 剪贴板可能还留着旧版本复制的内容。
  */
 import { LINE_COLORS, type LineColor } from "@/features/settings/lineColors";
+import type { LineMarksSnapshot } from "@/features/settings/lineMarks";
 
-const PAYLOAD_VERSION = 1;
+const PAYLOAD_VERSION = 2;
+const LEGACY_VERSION = 1;
 const VALID_COLORS: Set<string> = new Set(
   LINE_COLORS.flatMap((option) => (option.value === null ? [] : [option.value])),
 );
 
-interface ColorPayload {
+interface MarksPayload {
   v: number;
   text: string;
   colors: LineColor[];
+  stars: boolean[];
 }
 
 /// 文本覆盖的逻辑行数：末尾换行只是分隔符，不额外算一行
@@ -47,16 +51,24 @@ export function lineIndexOf(text: string, offset: number): number {
   return line;
 }
 
-/// 复制时写进剪贴板自定义格式的 JSON；颜色数对不上文本行数就不写载荷（只复制文字）
-export function encodePayload(text: string, colors: readonly LineColor[]): string | null {
+/// 复制时写进剪贴板自定义格式的 JSON；两份数组长度对不上文本行数就不写载荷（只复制文字）
+export function encodePayload(text: string, marks: LineMarksSnapshot): string | null {
   const count = lineCount(text);
-  if (count === 0 || colors.length !== count) return null;
-  const payload: ColorPayload = { v: PAYLOAD_VERSION, text, colors: colors.slice() };
+  if (count === 0 || marks.colors.length !== count || marks.stars.length !== count) return null;
+  const payload: MarksPayload = {
+    v: PAYLOAD_VERSION,
+    text,
+    colors: marks.colors.slice(),
+    stars: marks.stars.slice(),
+  };
   return JSON.stringify(payload);
 }
 
-/// 读回载荷：版本 / 文本 / 行数 / 颜色白名单任一项不符都当“没有颜色”
-export function decodePayload(raw: string | null | undefined, text: string): LineColor[] | null {
+/// 读回载荷：版本 / 文本 / 行数 / 颜色白名单 / 星标类型任一项不符都当"没有标记"
+export function decodePayload(
+  raw: string | null | undefined,
+  text: string,
+): LineMarksSnapshot | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -65,8 +77,9 @@ export function decodePayload(raw: string | null | undefined, text: string): Lin
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;
-  const payload = parsed as Partial<ColorPayload>;
-  if (payload.v !== PAYLOAD_VERSION || payload.text !== text) return null;
+  const payload = parsed as Partial<MarksPayload>;
+  if (payload.v !== PAYLOAD_VERSION && payload.v !== LEGACY_VERSION) return null;
+  if (payload.text !== text) return null;
   if (!Array.isArray(payload.colors)) return null;
   const count = lineCount(text);
   if (count === 0 || payload.colors.length !== count) return null;
@@ -80,7 +93,18 @@ export function decodePayload(raw: string | null | undefined, text: string): Lin
     if (typeof value !== "string" || !VALID_COLORS.has(value)) return null;
     colors.push(value);
   }
-  return colors;
+
+  // v1 没有 stars：全部视为没有星标（旧版本复制的内容仍能粘回颜色）
+  if (payload.v === LEGACY_VERSION) {
+    return { colors, stars: Array.from({ length: count }, () => false) };
+  }
+  if (!Array.isArray(payload.stars) || payload.stars.length !== count) return null;
+  const stars: boolean[] = [];
+  for (const value of payload.stars) {
+    if (typeof value !== "boolean") return null;
+    stars.push(value);
+  }
+  return { colors, stars };
 }
 
 interface PasteArgs {
@@ -88,40 +112,45 @@ interface PasteArgs {
   newText: string;
   selectionStart: number;
   selectionEnd: number;
-  oldColors: readonly LineColor[];
-  pasted: readonly LineColor[];
+  oldMarks: LineMarksSnapshot;
+  pasted: LineMarksSnapshot;
 }
 
 /**
- * 带色粘贴后的完整颜色数组；不满足整行替换条件时返回 null（调用方只贴文字）。
+ * 带标记粘贴后的完整数组；不满足整行替换条件时返回 null（调用方只贴文字）。
  *
  * 行数用 `\n` 切分（textarea 的 `value` 口径）：空内容算 1 行，尾部换行会多出一个
- * 空行 —— 颜色数组必须与它同长，否则下一行的颜色会串位。
+ * 空行 —— 两份数组都必须与它同长，否则下一行的标记会串位。
  */
-export function colorsAfterPaste({
+export function marksAfterPaste({
   oldText,
   newText,
   selectionStart,
   selectionEnd,
-  oldColors,
+  oldMarks,
   pasted,
-}: PasteArgs): LineColor[] | null {
+}: PasteArgs): LineMarksSnapshot | null {
   if (!atLineStart(oldText, selectionStart) || !atLineBoundary(oldText, selectionEnd)) {
     return null;
   }
-  if (pasted.length === 0) return null;
+  if (pasted.colors.length === 0) return null;
 
   const startLine = lineIndexOf(oldText, selectionStart);
   const oldLineCount = Math.max(1, oldText.split("\n").length);
   const endLine =
     selectionEnd === oldText.length ? oldLineCount : lineIndexOf(oldText, selectionEnd);
-  const base: LineColor[] = Array.from(
-    { length: oldLineCount },
-    (_, index) => oldColors[index] ?? null,
-  );
-  const next = [...base.slice(0, startLine), ...pasted, ...base.slice(endLine)];
-
   const newLineCount = Math.max(1, newText.split("\n").length);
-  while (next.length < newLineCount) next.push(null);
-  return next.slice(0, newLineCount);
+
+  /// 两块数组走同一套「替换 [startLine, endLine) 这一段」，只是空位不同
+  function merge<T>(previous: readonly T[], incoming: readonly T[], empty: T): T[] {
+    const base: T[] = Array.from({ length: oldLineCount }, (_, index) => previous[index] ?? empty);
+    const next = [...base.slice(0, startLine), ...incoming, ...base.slice(endLine)];
+    while (next.length < newLineCount) next.push(empty);
+    return next.slice(0, newLineCount);
+  }
+
+  return {
+    colors: merge(oldMarks.colors, pasted.colors, null),
+    stars: merge(oldMarks.stars, pasted.stars, false),
+  };
 }

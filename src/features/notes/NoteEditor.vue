@@ -13,26 +13,24 @@ import {
   lineRange,
   moveBlock,
   moveItem,
-  menuPosition,
   moveLines,
   selectionLines,
 } from "@/features/notes/logic";
 import ContextMenu from "@/features/notes/ContextMenu.vue";
 import {
-  colorsAfterPaste,
   decodePayload,
   encodePayload,
   lineCount,
   lineIndexOf,
+  marksAfterPaste,
 } from "@/features/notes/clipboard";
 import { commands } from "@/bindings";
 import {
-  LINE_COLORS,
-  remapColors,
-  spliceColors,
-  useLineColors,
-  type LineColor,
-} from "@/features/settings/lineColors";
+  remapMarks,
+  spliceMarks,
+  useLineMarks,
+  type LineMarksSnapshot,
+} from "@/features/settings/lineMarks";
 import { showLineColors } from "@/features/settings/lineColorsVisible";
 import type { Panel } from "@/features/notes/useNotes";
 import { useNotes } from "@/features/notes/useNotes";
@@ -44,6 +42,9 @@ import { log } from "@/utils/logger";
  * 全部差异（内部状态如 `boxes` / `drag` 都是 setup 内的 ref，每个实例各一份）。
  */
 const props = defineProps<{ fontSize: number; lineHeightRatio: number; panel: Panel }>();
+const emit = defineEmits<{
+  (e: "locate", payload: { panel: Panel; line: number } | null): void;
+}>();
 
 const { content, lines, setContent, flushNow } = useNotes(props.panel);
 
@@ -80,6 +81,11 @@ const hoverIndex = ref<number | null>(null);
 
 /** 「当前行」＝光标所在的那一行；编辑器失焦时为 null（没有焦点就没有当前行） */
 const caretIndex = ref<number | null>(null);
+
+/// 标题条的行标记入口只认“当前行”：行号有了才出现，失焦 / 刚打开就收起
+watch(caretIndex, (line) => {
+  emit("locate", line === null ? null : { panel: props.panel, line });
+});
 
 /** 当前行右侧的行操作按钮：只在指针停在当前行上时露头 —— 鼠标指哪，就说明在看哪 */
 const showRowActions = computed(
@@ -364,7 +370,11 @@ function onHandleUp(): void {
   const target = dropSelection(text, next, d.first, d.last, to, el.selectionStart, el.selectionEnd);
   // 与 Ctrl+D / Alt+↑↓ / 行内按钮同一条路：走 applyEdit 落盘 —— 这一笔进原生撤销栈，
   // 于是**拖拽也能 Ctrl+Z 撤回**，光标 / 选区也由它一次设到位。
-  applyEdit(next, target, from, moveBlock(paddedColors(), d.first, d.last, to));
+  const padded = paddedMarks();
+  applyEdit(next, target, from, {
+    colors: moveBlock(padded.colors, d.first, d.last, to),
+    stars: moveBlock(padded.stars, d.first, d.last, to),
+  });
   flashDropped(to, to + blockSize - 1);
   log.info(
     d.first === d.last
@@ -426,76 +436,54 @@ let structural: {
   targetBefore: { start: number; end: number };
   /// 编辑后的落点：重做时**原样**恢复 —— 多行快捷键的选区因此能跟着块平移（见 `moveCurrentLine`）
   targetAfter: { start: number; end: number };
-  /// 颜色也在这一笔里：撤销时恢复 `colorsBefore`，重放时恢复 `colorsAfter`
-  /// （颜色是 localStorage 的旁路状态，浏览器撤销栈不会替我们带回来）
-  colorsBefore: LineColor[];
-  colorsAfter: LineColor[];
+  /// 行标记也在这一笔里：撤销时恢复 `marksBefore`，重放时恢复 `marksAfter`
+  /// （标记是 localStorage 的旁路状态，浏览器撤销栈不会替我们带回来）
+  marksBefore: LineMarksSnapshot;
+  marksAfter: LineMarksSnapshot;
   state: "applied" | "undone";
   depth: number;
 } | null = null;
 
-// ── 行颜色：行下 1px 细线 + 行内操作条里的色板 ─────────────────────────────────
-const lineColors = useLineColors(props.panel);
-/// 色板对哪一行开着（null = 关）；位置在开的时候按按钮实测一次（fixed 浮层，不受滚动裁剪）
-const paletteFor = ref<number | null>(null);
-const palettePos = ref({ x: 0, y: 0 });
+// ── 行标记：行下细线 + 星标（共用一套按行号搬运的状态）────────────────────────
+const marks = useLineMarks(props.panel);
+
+/// 有星标的行：与手柄同槽；悬停 / 拖拽该行时让位给手柄（手柄的显形逻辑不变）
+const starredRows = computed(() => marks.stars.value.flatMap((on, index) => (on ? [index] : [])));
 /// 有颜色的行：按实测行盒画行下细线（几何一律读镜像，与当前行高亮同一套）。
 /// 标题条上的全局开关关掉时整层不画 —— 颜色仍按行号留在 localStorage，重新打开原样回来。
 const coloredBars = computed(() =>
   showLineColors.value
     ? lines.value.flatMap((_, index) => {
-        const color = lineColors.colorAt(index);
+        const color = marks.colorAt(index);
         return color === null ? [] : [{ index, color }];
       })
     : [],
 );
-/// 结构性编辑已经自己搬过颜色了，别让随之而来的 `input` 再搬一次
-let skipColorReconcile = false;
+/// 结构性编辑已经自己搬过标记了，别让随之而来的 `input` 再搬一次
+let skipMarksReconcile = false;
 
-/// 把颜色数组补齐到当前行数，才能交给 `moveItem` / `moveLines` 做和正文同一套置换
-function paddedColors(): (string | null)[] {
-  return Array.from({ length: lines.value.length }, (_, i) => lineColors.colorAt(i));
-}
-
-const PALETTE_W = 5 * 20 + 4 * 4 + 16; // 5 列 × 20px + 4 道缝 + 两侧内边距
-const PALETTE_H = 2 * 20 + 4 + 16;
-
-function openPalette(e: MouseEvent, index: number): void {
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  palettePos.value = menuPosition(
-    rect.left,
-    rect.bottom + 4,
-    PALETTE_W,
-    PALETTE_H,
-    window.innerWidth,
-    window.innerHeight,
-  );
-  paletteFor.value = index;
-}
-
-function pickLineColor(color: string | null): void {
-  if (paletteFor.value !== null) lineColors.set(paletteFor.value, color);
-  paletteFor.value = null;
+/// 两份数组补齐到当前行数，才能交给 `moveItem` / `moveLines` / `moveBlock` 做同一套置换
+function paddedMarks(): LineMarksSnapshot {
+  return marks.padded(lines.value.length);
 }
 
 /** 所有输入（含原生撤销 / 重做）都从这里进：更新内容，顺带修正撤销带出来的选区 */
 function onInput(e: Event): void {
   closeContextMenu(); // 内容变了：菜单作用于旧选区，留着只会点错
-  paletteFor.value = null; // 色板也作用于旧行号，别留着点错
   const el = e.target as HTMLTextAreaElement;
   const inputType = (e as InputEvent).inputType;
-  let restoredColors = false;
+  let restoredMarks = false;
   if (inputType === "historyUndo" || inputType === "historyRedo") {
     const caret = Math.min(preEditCaret ?? el.selectionStart, el.value.length);
     preEditCaret = null;
     el.setSelectionRange(caret, caret);
     if (inputType === "historyUndo") {
       if (structural?.state === "applied") {
-        // 撤销掉的正是我们那一笔：它的重做由我们接管，颜色也一并回到编辑前
+        // 撤销掉的正是我们那一笔：它的重做由我们接管，行标记也一并回到编辑前
         structural.state = "undone";
         structural.depth = 0;
-        lineColors.replace(structural.colorsBefore);
-        restoredColors = true;
+        marks.replace(structural.marksBefore);
+        restoredMarks = true;
       } else if (structural?.state === "undone") {
         structural.depth += 1; // 又撤了一笔别的：我们那一笔在重做栈里更深了
       }
@@ -508,12 +496,12 @@ function onInput(e: Event): void {
     preEditCaret = null; // 用户又打字了，上一次结构性编辑的位置不再适用
     structural = null; // 且已经离开这条撤销历史
   }
-  // 原生编辑按"编辑前后行文本的共同前缀 + 行数变化"整体平移颜色（不猜光标位置）。
-  // 两种跳过：① 结构性编辑自己搬过颜色（见 applyEdit）；② 撤销刚刚恢复了颜色快照。
-  if (skipColorReconcile) {
-    skipColorReconcile = false;
-  } else if (!restoredColors) {
-    lineColors.shift(lines.value, el.value.split("\n"));
+  // 原生编辑按"编辑前后行文本的共同前缀 + 行数变化"整体平移标记（不猜光标位置）。
+  // 两种跳过：① 结构性编辑自己搬过标记（见 applyEdit）；② 撤销刚刚恢复了标记快照。
+  if (skipMarksReconcile) {
+    skipMarksReconcile = false;
+  } else if (!restoredMarks) {
+    marks.shift(lines.value, el.value.split("\n"));
   }
   setContent(el.value);
 }
@@ -532,12 +520,6 @@ function onKeydown(e: KeyboardEvent): void {
     closeContextMenu();
     return;
   }
-  if (e.code === "Escape" && paletteFor.value !== null) {
-    e.preventDefault();
-    e.stopPropagation(); // 别顺手把设置 / 帮助浮层也收了
-    paletteFor.value = null;
-    return;
-  }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
     e.preventDefault();
     deleteCurrentLine();
@@ -552,8 +534,8 @@ function onKeydown(e: KeyboardEvent): void {
   ) {
     if (structural?.state === "undone" && structural.depth === 0) {
       e.preventDefault();
-      const { after, targetAfter, targetBefore, colorsAfter } = structural;
-      applyEdit(after, targetAfter, targetBefore.start, colorsAfter);
+      const { after, targetAfter, targetBefore, marksAfter } = structural;
+      applyEdit(after, targetAfter, targetBefore.start, marksAfter);
       log.info("[notes] 重做结构性编辑（自接管，绕开 Chromium 重做的缺陷）");
     }
     return;
@@ -597,13 +579,12 @@ function deleteLinesAt(first: number, last: number): void {
   const { start, end, caret } =
     first === last ? deleteLine(text, first) : deleteLines(text, first, last);
   if (start === end) return; // 空文档：没有可删的
-  // 颜色跟着这几行一起删，别串到后面的行；交给 applyEdit 记快照供撤销恢复
-  applyEdit(
-    `${text.slice(0, start)}${text.slice(end)}`,
-    { start: caret, end: caret },
-    from,
-    spliceColors(paddedColors(), first, last),
-  );
+  // 标记跟着这几行一起删，别串到后面的行；交给 applyEdit 记快照供撤销恢复
+  const padded = paddedMarks();
+  applyEdit(`${text.slice(0, start)}${text.slice(end)}`, { start: caret, end: caret }, from, {
+    colors: spliceMarks(padded.colors, first, last),
+    stars: spliceMarks(padded.stars, first, last),
+  });
   log.info(
     first === last
       ? `[notes] 删除第 ${first + 1} 行`
@@ -628,26 +609,26 @@ function collapseAllBlankLines(): void {
   const collapsed = collapseBlankLines(el.value, from);
   if (collapsed === null) return;
   // 清除连续空行是整篇操作、可能有多段：`moved` 是纯函数算好的旧→新行号映射，
-  // 颜色照它重排即可（被压掉的空行归到段内留下来的那个空行），不用再猜插入点。
-  const nextColors = remapColors(
-    paddedColors(),
-    collapsed.moved,
-    collapsed.text.split("\n").length,
-  );
-  applyEdit(collapsed.text, { start: collapsed.caret, end: collapsed.caret }, from, nextColors);
+  // 两份标记照它重排即可（被压掉的空行归到段内留下来的那个空行），不用再猜插入点。
+  const padded = paddedMarks();
+  const lineTotal = collapsed.text.split("\n").length;
+  applyEdit(collapsed.text, { start: collapsed.caret, end: collapsed.caret }, from, {
+    colors: remapMarks(padded.colors, collapsed.moved, lineTotal, null),
+    stars: remapMarks(padded.stars, collapsed.moved, lineTotal, false),
+  });
   log.info("[notes] 已清除连续空行");
 }
 
 /**
- * 写剪贴板：优先走后端的「文字 + 行颜色私有格式」；失败就退回纯文字，
- * 颜色丢掉但复制本身不失败（剪贴板可能被安全软件限制）。
+ * 写剪贴板：优先走后端的「文字 + 行标记私有格式」；失败就退回纯文字，
+ * 标记丢掉但复制本身不失败（剪贴板可能被安全软件限制）。
  */
-async function writeClipboard(text: string, colors: readonly LineColor[]): Promise<boolean> {
+async function writeClipboard(text: string, snapshot: LineMarksSnapshot): Promise<boolean> {
   try {
-    await commands.copyTextWithColors(text, encodePayload(text, colors));
+    await commands.copyTextWithColors(text, encodePayload(text, snapshot));
     return true;
   } catch (e) {
-    log.warn(`[notes] 带色复制失败，回落到纯文字：${String(e)}`);
+    log.warn(`[notes] 带标记复制失败，回落到纯文字：${String(e)}`);
   }
   try {
     await navigator.clipboard.writeText(text);
@@ -661,16 +642,18 @@ async function writeClipboard(text: string, colors: readonly LineColor[]): Promi
 /**
  * 复制 `[first, last]` 这一段逻辑行的文本到剪贴板（**不改文档**）：行内按钮与右键菜单共用
  * （快捷键走 textarea 的 copy 事件，见 `onCopy`）。
- * 带色复制失败时回落到纯文字；都失败才返回 false（按钮据此给对勾 / 叉）。
+ * 带标记复制失败时回落到纯文字；都失败才返回 false（按钮据此给对勾 / 叉）。
  */
 async function copyLines(first: number, last: number): Promise<boolean> {
   const el = editor.value;
   if (!el || first < 0 || last >= lines.value.length) return false;
   const text = lines.value.slice(first, last + 1).join("\n");
-  const colors = lines.value
-    .slice(first, last + 1)
-    .map((_, offset) => lineColors.colorAt(first + offset));
-  if (await writeClipboard(text, colors)) {
+  const count = last - first + 1;
+  const copyMarks: LineMarksSnapshot = {
+    colors: Array.from({ length: count }, (_, offset) => marks.colorAt(first + offset)),
+    stars: Array.from({ length: count }, (_, offset) => marks.starAt(first + offset)),
+  };
+  if (await writeClipboard(text, copyMarks)) {
     log.info(
       first === last
         ? `[notes] 已复制第 ${first + 1} 行`
@@ -686,7 +669,7 @@ async function copyLines(first: number, last: number): Promise<boolean> {
   const ok = document.execCommand("copy");
   el.setSelectionRange(restore, restore);
   if (ok) {
-    log.info("[notes] 已回落 execCommand 复制（不带行颜色）");
+    log.info("[notes] 已回落 execCommand 复制（不带行标记）");
   } else {
     log.error("[notes] 复制失败：两条剪贴板路径都没成");
   }
@@ -694,7 +677,7 @@ async function copyLines(first: number, last: number): Promise<boolean> {
 }
 
 /**
- * Ctrl+C：有选区就接管，把每行颜色一起写进剪贴板；没有选区交回浏览器原生
+ * Ctrl+C：有选区就接管，把每行的颜色与星标一起写进剪贴板；没有选区交回浏览器原生
  * （原生在空选区下本来就什么也不复制）。
  */
 function onCopy(e: ClipboardEvent): void {
@@ -704,15 +687,16 @@ function onCopy(e: ClipboardEvent): void {
   if (text === "") return;
   e.preventDefault();
   const startLine = lineIndexOf(el.value, el.selectionStart);
-  const colors = Array.from({ length: lineCount(text) }, (_, offset) =>
-    lineColors.colorAt(startLine + offset),
-  );
-  void writeClipboard(text, colors);
+  const count = lineCount(text);
+  void writeClipboard(text, {
+    colors: Array.from({ length: count }, (_, offset) => marks.colorAt(startLine + offset)),
+    stars: Array.from({ length: count }, (_, offset) => marks.starAt(startLine + offset)),
+  });
 }
 
 /**
  * Ctrl+V：先拦下原生粘贴（私有格式要异步读），再按载荷决定：
- * - 有效且是整行替换 → `applyEdit`，文本、光标、颜色一起进撤销栈；
+ * - 有效且是整行替换 → `applyEdit`，文本、光标、两份行标记一起进撤销栈；
  * - 否则 → `insertText` 只贴文字，保持原生手感。
  * `clipboardData` 里同步拿到的文字是兜底：后端读失败也不至于粘不进来。
  */
@@ -732,30 +716,30 @@ async function pasteFromClipboard(fallback: string): Promise<void> {
   const end = el.selectionEnd;
 
   let text = fallback;
-  let colors: LineColor[] | null = null;
+  let pasted: LineMarksSnapshot | null = null;
   try {
     const read = await commands.readClipboard();
     if (read.text !== "") text = read.text;
-    colors = decodePayload(read.payload, text);
+    pasted = decodePayload(read.payload, text);
   } catch (e) {
     log.warn(`[notes] 读取剪贴板失败，按纯文字粘贴：${String(e)}`);
   }
   if (text === "") return;
 
   const oldText = el.value;
-  if (colors) {
+  if (pasted) {
     const nextText = oldText.slice(0, start) + text + oldText.slice(end);
-    const nextColors = colorsAfterPaste({
+    const nextMarks = marksAfterPaste({
       oldText,
       newText: nextText,
       selectionStart: start,
       selectionEnd: end,
-      oldColors: lineColors.colors.value,
-      pasted: colors,
+      oldMarks: paddedMarks(),
+      pasted,
     });
-    if (nextColors) {
+    if (nextMarks) {
       const caret = start + text.length;
-      applyEdit(nextText, { start: caret, end: caret }, start, nextColors);
+      applyEdit(nextText, { start: caret, end: caret }, start, nextMarks);
       return;
     }
   }
@@ -846,7 +830,6 @@ function onContextMenu(e: MouseEvent): void {
 /// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）
 function onDocumentPointerDown(): void {
   closeContextMenu();
-  paletteFor.value = null; // 色板同理：点别处就收（色板自己 `@pointerdown.stop`）
 }
 
 /**
@@ -864,19 +847,20 @@ function moveCurrentLine(delta: number): void {
   if (range !== null) {
     const moved = moveLines(parts, range.first, range.last, delta);
     if (moved === null) return; // 块已顶到首行 / 底到末行
-    // 颜色按同一套置换跟着块走（颜色数组先补齐到行数，否则 moveLines 会夹错边界）
-    const nextColors = moveLines(paddedColors(), range.first, range.last, delta);
+    // 两份标记按同一套置换跟着块走（数组先补齐到行数，否则 moveLines 会夹错边界）
+    const padded = paddedMarks();
+    const nextColors = moveLines(padded.colors, range.first, range.last, delta);
+    const nextStars = moveLines(padded.stars, range.first, range.last, delta);
+    if (nextColors === null || nextStars === null) return;
     // 块整体平移一行 = 选区按「相邻那一行 + 它的换行」平移（换行跟着那一行一起被搬走）
     const neighbour =
       delta < 0 ? parts[range.first - 1].length + 1 : parts[range.last + 1].length + 1;
     const shift = delta < 0 ? -neighbour : neighbour;
     const next = moved.join("\n");
-    applyEdit(
-      next,
-      { start: el.selectionStart + shift, end: el.selectionEnd + shift },
-      from,
-      nextColors ?? undefined,
-    );
+    applyEdit(next, { start: el.selectionStart + shift, end: el.selectionEnd + shift }, from, {
+      colors: nextColors,
+      stars: nextStars,
+    });
     log.info(
       `[notes] 第 ${range.first + 1}–${range.last + 1} 行整块移到第 ${range.first + 1 + delta} 行`,
     );
@@ -888,7 +872,11 @@ function moveCurrentLine(delta: number): void {
   if (target < 0 || target >= parts.length) return;
   const next = moveItem(parts, index, target).join("\n");
   const caret = caretOffset(next, target, column);
-  applyEdit(next, { start: caret, end: caret }, from, moveItem(paddedColors(), index, target));
+  const padded = paddedMarks();
+  applyEdit(next, { start: caret, end: caret }, from, {
+    colors: moveItem(padded.colors, index, target),
+    stars: moveItem(padded.stars, index, target),
+  });
   log.info(`[notes] 第 ${index + 1} 行移到了第 ${target + 1} 行`);
 }
 
@@ -909,16 +897,22 @@ function applyEdit(
   text: string,
   target: { start: number; end: number },
   from: number,
-  nextColors?: LineColor[],
+  nextMarks?: LineMarksSnapshot,
 ): void {
   const el = editor.value;
   if (!el) return;
-  // 颜色快照在搬色**之前**取：撤销 / 重放时把这份旁路状态一起带回来
-  const colorsBefore = lineColors.colors.value.slice();
-  if (nextColors !== undefined) lineColors.replace(nextColors);
-  const colorsAfter = lineColors.colors.value.slice();
-  // 结构性编辑已经自己搬过颜色：execCommand 同步派发的那次 input 别再平移一次
-  skipColorReconcile = true;
+  // 标记快照在搬运**之前**取：撤销 / 重放时把这份旁路状态一起带回来
+  const marksBefore: LineMarksSnapshot = {
+    colors: marks.colors.value.slice(),
+    stars: marks.stars.value.slice(),
+  };
+  if (nextMarks !== undefined) marks.replace(nextMarks);
+  const marksAfter: LineMarksSnapshot = {
+    colors: marks.colors.value.slice(),
+    stars: marks.stars.value.slice(),
+  };
+  // 结构性编辑已经自己搬过标记：execCommand 同步派发的那次 input 别再平移一次
+  skipMarksReconcile = true;
   // 键盘路径本来就在焦点里；鼠标拖拽可能没有（用户可能一直没点进编辑器），而 execCommand
   // 只作用于聚焦元素 —— 先聚焦，顺带让拖完的光标看得见。
   el.focus();
@@ -927,7 +921,7 @@ function applyEdit(
     el.value = text; // 先落到 DOM，保证下面设置光标时作用在新文本上
     setContent(text);
   }
-  skipColorReconcile = false; // 回落路径不派发 input，兜底清掉
+  skipMarksReconcile = false; // 回落路径不派发 input，兜底清掉
   el.setSelectionRange(target.start, target.end);
   preEditCaret = from; // 放在最后：否则会被本次编辑自己触发的 input 清掉
   // 记下这一笔「编辑后」的样子：用户撤销后再重做时，就按它重放一次（缘由见 `structural` 的注释）。
@@ -936,8 +930,8 @@ function applyEdit(
     after: text,
     targetBefore: { start: from, end: from },
     targetAfter: target,
-    colorsBefore,
-    colorsAfter,
+    marksBefore,
+    marksAfter,
     state: "applied",
     depth: 0,
   };
@@ -1077,6 +1071,23 @@ function flashDropped(first: number, last: number): void {
           height: `${boxTop(droppedRange.last) + boxHeight(droppedRange.last) - boxTop(droppedRange.first)}px`,
         }"
       />
+      <!-- 星标：与手柄同槽，默认常显；悬停 / 拖拽该行时让位给手柄。
+           黄色是唯一形态，不做空心态 —— 没有星标就什么都不画。 -->
+      <div
+        v-for="index in starredRows"
+        :key="`star-${index}`"
+        :data-line-star="index"
+        class="pointer-events-none absolute flex items-center justify-center transition-opacity"
+        :class="index === hoverIndex || index === drag?.grabIndex ? 'opacity-0' : 'opacity-100'"
+        :style="{
+          top: `${boxTop(index)}px`,
+          width: `${HANDLE_W}px`,
+          height: `${ROW_H}px`,
+          color: '#eab308',
+        }"
+      >
+        <span :style="{ fontSize: `${Math.min(11, ROW_H)}px`, lineHeight: '1' }">★</span>
+      </div>
       <!-- 续行拐弯箭头：折行的行，**每个续行前**都常显一个 ↳（常显，不跟悬停走）。
            它与手柄共用左侧槽那一格：同宽（HANDLE_W）+ 水平居中 → 两个标记落在**同一条竖中线**上
            （也就是「文字左缘与左边界」的中点）；而手柄只在逻辑行的首个视觉行、箭头只在续行，
@@ -1208,23 +1219,6 @@ function flashDropped(first: number, last: number): void {
         <span class="sr-only" aria-live="polite">
           {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
         </span>
-        <!-- 行颜色：与复制 / 删除同一条浮条，点它开色板（作用在**当前行**，不跟随悬停行）。
-             排在复制之后、删除之前：复制最高频，放最左；删除有破坏性，留最右。 -->
-        <button
-          type="button"
-          class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:ring-[var(--note-fg-faint)]"
-          aria-label="行颜色"
-          title="行颜色"
-          aria-haspopup="dialog"
-          :aria-expanded="paletteFor === currentLine"
-          @mousedown.prevent
-          @click="openPalette($event, currentLine)"
-        >
-          <span
-            class="h-2.5 w-2.5 rounded-full ring-1 ring-[var(--note-fg-faint)]"
-            :style="{ backgroundColor: lineColors.colorAt(currentLine) ?? 'transparent' }"
-          />
-        </button>
         <button
           type="button"
           class="pointer-events-auto flex h-5 w-5 items-center justify-center rounded bg-[var(--note-bg)] text-[var(--note-fg)] ring-1 ring-[var(--note-fg-weak)] transition hover:text-rose-500 hover:ring-[var(--note-fg-faint)]"
@@ -1377,37 +1371,5 @@ function flashDropped(first: number, last: number): void {
 
   <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），
        菜单项与动作全由这里组装 —— 只有这里知道选区覆盖哪几行。 -->
-  <!-- 行颜色色板：fixed 浮层（不受 scroller 的滚动裁剪），层级 z-40 与右键菜单同档。
-       第一项「默认」= 清掉这一行的颜色；选完即关，点别处 / Esc 也关。 -->
-  <div
-    v-if="paletteFor !== null"
-    class="fixed z-40 grid grid-cols-5 gap-1 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
-    :style="{ left: `${palettePos.x}px`, top: `${palettePos.y}px` }"
-    role="dialog"
-    aria-label="行颜色"
-    @pointerdown.stop
-  >
-    <button
-      v-for="item in LINE_COLORS"
-      :key="item.label"
-      type="button"
-      class="flex h-5 w-5 items-center justify-center rounded ring-1"
-      :class="
-        lineColors.colorAt(paletteFor) === item.value ? 'ring-[var(--note-fg)]' : 'ring-transparent'
-      "
-      :aria-label="item.label"
-      :title="item.label"
-      @mousedown.prevent
-      @click="pickLineColor(item.value)"
-    >
-      <span
-        class="h-3 w-3 rounded-full"
-        :style="{
-          backgroundColor: item.value === null ? 'var(--note-fg-faint)' : item.value,
-        }"
-      />
-    </button>
-  </div>
-
   <ContextMenu v-if="contextMenu" :x="contextMenu.x" :y="contextMenu.y" :items="menuItems" />
 </template>

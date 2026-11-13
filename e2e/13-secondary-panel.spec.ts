@@ -33,9 +33,9 @@ import {
 } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
-/// 实例起跑时的客户区宽度：`tauri.conf.json` 的 `width: 360`（跨语言无法共享常量，
+/// 实例起跑时的客户区宽度：`tauri.conf.json` 的 `width: 520`（跨语言无法共享常量，
 /// 收尾要把窗口钉回这个值 —— 理由是"展开时主宽 := 关态窗宽"，收不干净就会一条条变宽）
-const DEFAULT_VIEWPORT = 360;
+const DEFAULT_VIEWPORT = 520;
 
 /// 与 `features/settings/secondaryPanel.ts` 的 KEY 一致（跨语言无法共享常量）
 const PANEL_KEY = "dnote:secondary-panel";
@@ -116,7 +116,7 @@ test.describe("次级面板", () => {
     // 收尾两步：① 走一次**真收起**（窗口宽度是开关那一下当场加减的，光清偏好 + 重载收不回那一栏）；
     // ② 再把窗口宽度**钉回实例起跑时的值** —— 只靠"收起"回到的是「主宽」，而**展开时主宽 := 关态窗宽**，
     // 所以上一次漏下来的宽度会被下一次展开收编成新的主宽，一条条越来越宽。实测（本文件的历史数据）：
-    // 起跑宽度 360 → 600 → 1040 → 960 → 1280 → 1600，主面板跟着一路变宽、右边界迟早跑出屏幕。
+    // 起跑宽度 520 → 600 → 1040 → 960 → 1280 → 1600，主面板跟着一路变宽、右边界迟早跑出屏幕。
     try {
       if ((await frame(page).count()) > 0) {
         const beforeClose = await viewportWidth(page);
@@ -131,8 +131,8 @@ test.describe("次级面板", () => {
           JSON.stringify({ beforeClose, afterClose: await viewportWidth(page) }),
         );
       }
-      // 钉回默认客户区宽（`tauri.conf.json` 的 `width: 360`）：分界线拖动那几条要靠主面板有余量
-      // 才拖得动（收起只回到"主宽"时可能是 260 下限，-80 直接夹住、用例假红）
+      // 钉回默认客户区宽（`tauri.conf.json` 的 `width: 520`）：分界线拖动那几条要靠主面板有余量
+      // 才拖得动（默认宽度就是主宽下限，只能往右拖，所以余量必须由收尾复位保证）
       const delta = DEFAULT_VIEWPORT - (await viewportWidth(page));
       if (delta !== 0 && app.child.pid) resizeWindowBy(app.child.pid, delta, 0);
     } catch (e) {
@@ -242,8 +242,8 @@ test.describe("次级面板", () => {
     const mainBefore = (await rect(page, '[data-panel="main"]')).width;
     const secondaryBefore = (await rect(page, '[data-panel-frame="secondary"]')).width;
 
-    // 分界线往左拖 80px：主面板窄 80、次级正好宽 80 —— 两栏之和不变，所以**窗口一个像素都不动**
-    await dragDivider(page, -80);
+    // 分界线往右拖 80px：主面板宽 80、次级正好窄 80 —— 两栏之和不变，所以**窗口一个像素都不动**
+    await dragDivider(page, 80);
 
     const mainAfter = (await rect(page, '[data-panel="main"]')).width;
     const secondaryAfter = (await rect(page, '[data-panel-frame="secondary"]')).width;
@@ -251,7 +251,7 @@ test.describe("次级面板", () => {
       "[secondary] 拖分界线",
       JSON.stringify({ mainBefore, mainAfter, secondaryBefore, secondaryAfter }),
     );
-    expect(mainBefore - mainAfter).toBeGreaterThanOrEqual(70); // 跟着指针走
+    expect(mainAfter - mainBefore).toBeGreaterThanOrEqual(70); // 跟着指针走
     expect(mainAfter + secondaryAfter).toBeCloseTo(mainBefore + secondaryBefore, 0); // 之和不变
     expect(await viewportWidth(page)).toBe(windowBefore); // 窗口不动
 
@@ -274,7 +274,7 @@ test.describe("次级面板", () => {
   test("分界线位置记在偏好里：展开态重载后仍停在同一处", async ({ page }) => {
     await handle(page).click();
     await expect(frame(page)).toBeVisible();
-    await dragDivider(page, -70);
+    await dragDivider(page, 70);
 
     const mainDragged = (await rect(page, '[data-panel="main"]')).width;
     const secondaryDragged = (await rect(page, '[data-panel-frame="secondary"]')).width;
@@ -380,11 +380,11 @@ test.describe("次级面板", () => {
 
     // 拖分界线 → 圆跟着走（锚的是主边界，不是窗口）
     const atOpen = await circleCenterX();
-    await dragDivider(page, -80);
+    await dragDivider(page, 80);
     await expect
       .poll(async () => Math.abs((await circleCenterX()) - (await mainRightX())))
       .toBeLessThanOrEqual(1);
-    expect(atOpen - (await circleCenterX())).toBeGreaterThanOrEqual(70);
+    expect((await circleCenterX()) - atOpen).toBeGreaterThanOrEqual(70);
 
     // 再点它 → 直接收起（不往次级面板那侧跑）
     await circle().click();

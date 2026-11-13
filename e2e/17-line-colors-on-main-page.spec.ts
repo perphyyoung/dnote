@@ -1,5 +1,5 @@
 /**
- * 行颜色：点进某行 → 行内操作条的「行颜色」→ 色板选色 → 行下方细线出现；
+ * 行颜色：点进某行 → 标题条「行颜色」入口 → 色板选色 → 行下方细线出现；
  * 可还原默认、重载记住；删掉有色行后颜色不串到下一行，Alt+↑/↓ 移动时颜色跟着行走；
  * Ctrl+D 删除后 Ctrl+Z 还原颜色回来、在有色行上方插入新行时下方颜色留在原行、
  * 清除连续空行后颜色按行号映射跟随。
@@ -34,10 +34,9 @@ async function expectColor(page: Page, index: number, color: string, message?: s
   expect(await line.getAttribute("style"), message).toContain(color);
 }
 
-/// 把指针放到第 index 行并打开色板
+/// 定位到第 index 行（标题条入口随之出现），再点标题条入口打开色板
 async function openPalette(page: Page, index: number) {
   await caretTo(page, index, 0);
-  await hoverRow(page, index);
   await page.getByRole("button", { name: "行颜色", exact: true }).click();
   return page.getByRole("dialog", { name: "行颜色" });
 }
@@ -45,9 +44,10 @@ async function openPalette(page: Page, index: number) {
 test.describe("行颜色", () => {
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
-    // 同文件共用一个 WebView profile：颜色偏好与显示开关不复位会串用例
+    // 同文件共用一个 WebView profile：颜色 / 星标偏好与显示开关不复位会串用例
     await page.evaluate(() => {
       localStorage.removeItem("dnote:line-colors:main");
+      localStorage.removeItem("dnote:line-stars:main");
       localStorage.removeItem("dnote:show-line-colors");
     });
     await page.reload();

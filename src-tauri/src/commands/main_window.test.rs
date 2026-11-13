@@ -10,12 +10,12 @@ use super::{clamped_size, track_size, tray_should_hide, SizeBounds, TRAY_FRONT_G
 use std::time::Duration;
 use tauri::{LogicalSize, PhysicalSize};
 
-/// 取值同 `tauri.conf.json`：下限 260×200、默认 360×480
+/// 取值同 `tauri.conf.json`：下限 520×200、默认 520×480
 fn bounds() -> SizeBounds {
     SizeBounds {
-        min_width: 260.0,
+        min_width: 520.0,
         min_height: 200.0,
-        width: 360.0,
+        width: 520.0,
         height: 480.0,
     }
 }
@@ -45,7 +45,7 @@ fn tiny_size_goes_back_to_default() {
     // 被 Show Desktop 写坏的就是这一档（实测 144×19，见 `开发经验.md` §1.6）
     assert_eq!(
         clamped_size(PhysicalSize::new(144, 19), 1.0, bounds()),
-        Some(LogicalSize::new(360.0, 480.0))
+        Some(LogicalSize::new(520.0, 480.0))
     );
 }
 
@@ -53,7 +53,7 @@ fn tiny_size_goes_back_to_default() {
 fn size_at_or_above_floor_is_left_alone() {
     // 正好等于下限、以及用户自己拖出来的合法尺寸，都不该被改
     assert_eq!(
-        clamped_size(PhysicalSize::new(260, 200), 1.0, bounds()),
+        clamped_size(PhysicalSize::new(520, 200), 1.0, bounds()),
         None
     );
     assert_eq!(
@@ -64,13 +64,13 @@ fn size_at_or_above_floor_is_left_alone() {
 
 #[test]
 fn floor_is_logical_pixels_so_dpi_matters() {
-    // 配置是逻辑像素：150% 缩放下，下限的物理尺寸是 390×300
+    // 配置是逻辑像素：150% 缩放下，下限的物理尺寸是 780×300
     assert_eq!(
         clamped_size(PhysicalSize::new(300, 250), 1.5, bounds()),
-        Some(LogicalSize::new(360.0, 480.0))
+        Some(LogicalSize::new(520.0, 480.0))
     );
     assert_eq!(
-        clamped_size(PhysicalSize::new(390, 300), 1.5, bounds()),
+        clamped_size(PhysicalSize::new(780, 300), 1.5, bounds()),
         None
     );
 }

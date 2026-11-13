@@ -17,9 +17,9 @@
       {
         "label": "main",
         "title": "dnote",
-        "width": 360,
+        "width": 520,
         "height": 480,
-        "minWidth": 260,
+        "minWidth": 520,
         "minHeight": 200,
         "decorations": false,
         "visible": false,

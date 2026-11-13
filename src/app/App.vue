@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import HelpPanel from "@/features/help/HelpPanel.vue";
 import { exportNotesBackup, pickNotesBackup, type ImportedNotes } from "@/features/notes/backup";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
-import { useNotes } from "@/features/notes/useNotes";
+import { useNotes, type Panel } from "@/features/notes/useNotes";
 import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
 import {
   BACKGROUND_ALPHA_MAX,
@@ -34,6 +34,7 @@ import {
   setLineHeightRatio,
 } from "@/features/settings/lineHeight";
 import { setShowLineColors, showLineColors } from "@/features/settings/lineColorsVisible";
+import HeaderLineMarks from "@/features/settings/HeaderLineMarks.vue";
 import type { Theme } from "@/features/settings/themes";
 import { contrastRatio, matchTheme, THEMES } from "@/features/settings/themes";
 import {
@@ -82,6 +83,13 @@ function togglePin() {
 /// 行颜色显示开关：只影响“画不画行下细线”，颜色本身留在 localStorage 里，重新打开原样回来
 function toggleLineColors() {
   setShowLineColors(!showLineColors.value);
+}
+
+/// 最近一次定位到的行（光标所在行）：标题条的行标记入口只在有它时出现，失焦即收
+const located = ref<{ panel: Panel; line: number } | null>(null);
+
+function onLocate(payload: { panel: Panel; line: number } | null): void {
+  located.value = payload;
 }
 
 // 启动时始终按解析结果应用一次（未存过 = 沿用窗口配置的默认值「置顶」）。
@@ -376,6 +384,10 @@ function onVisibilityChange(): void {
       >
         dnote
       </span>
+      <span class="flex-1 self-stretch" data-tauri-drag-region></span>
+      <!-- 行标记入口（星标 + 行颜色）：只在定位到行后出现，失焦即收。夹在两段拖动区中间
+           = 自由区居中，不压右侧图标组。两个入口共用一套显示逻辑，见 HeaderLineMarks。 -->
+      <HeaderLineMarks v-if="located" :panel="located.panel" :line="located.line" />
       <span class="flex-1 self-stretch" data-tauri-drag-region></span>
       <!-- 帮助：与设置同为标题条下方内嵌浮层（同一层遮罩，两者互斥）。位置在图钉左侧，
            浮层则贴窗口右缘 —— 与设置面板同一条口径（见 design.md「帮助面板」）。
@@ -790,6 +802,7 @@ function onVisibilityChange(): void {
           panel="main"
           :font-size="fontSize"
           :line-height-ratio="lineHeightRatio"
+          @locate="onLocate"
         />
 
         <!-- 次级面板的把手：**圆心锚在主面板右边界**，所以它属于主栏（拖分界线时自己就跟着走了，
@@ -839,6 +852,7 @@ function onVisibilityChange(): void {
           panel="secondary"
           :font-size="fontSize"
           :line-height-ratio="lineHeightRatio"
+          @locate="onLocate"
         />
       </div>
     </main>
