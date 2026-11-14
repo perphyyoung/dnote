@@ -87,6 +87,8 @@ const BAR_W_NO_COLOR = 118;
 const actionBar = ref<{ line: number; x: number; y: number } | null>(null);
 const actionCopyFeedback = ref<{ line: number; ok: boolean } | null>(null);
 let actionCopyTimer: ReturnType<typeof setTimeout> | null = null;
+/// 鼠标按键按住期间不显示浮条：否则右键时它会出现在指针下方，抢走 contextmenu
+let pointerHeld = false;
 
 /** 「当前行」＝光标所在的那一行；编辑器失焦时为 null（没有焦点就没有当前行） */
 const caretIndex = ref<number | null>(null);
@@ -252,7 +254,11 @@ function barPosition(line: number): { x: number; y: number } | null {
   if (visualBottom < rect.top || visualTop > rect.bottom) return null; // 视觉行不在可视区
   const width = barWidth();
   // 右侧多让 10px：次级面板的圆把手压在面板右缘，且 `z-40` 高于浮条
-  const left = Math.max(rect.left + 4, Math.min(anchor.x - width / 2, rect.right - width - 14));
+  // 左侧让开手柄槽：浮条 `z-30` 压着手柄 `z-20`，压住就再也点不到手柄（见 `开发经验.md` §3.22）
+  const left = Math.max(
+    rect.left + HANDLE_W + 4,
+    Math.min(anchor.x - width / 2, rect.right - width - 14),
+  );
   let top = visualTop - BAR_GAP - BAR_H;
   if (top < topEdge) top = visualBottom + BAR_GAP; // 顶部放不下 → 放到视觉行下方
   top = Math.min(Math.max(top, topEdge), Math.max(topEdge, bottomEdge - BAR_H));
@@ -270,7 +276,7 @@ function clearActionCopy(): void {
 /// 光标行 / 布局 / 滚动变化后重算浮条；失焦、拖拽、右键菜单、行滚出可视区都收起
 function updateActionBar(): void {
   const line = caretIndex.value;
-  if (line === null || drag.value !== null || contextMenu.value !== null) {
+  if (line === null || drag.value !== null || contextMenu.value !== null || pointerHeld) {
     actionBar.value = null;
     clearActionCopy();
     return;
@@ -370,6 +376,8 @@ onMounted(() => {
   if (scroller.value) resizeObserver.observe(scroller.value);
   document.addEventListener("selectionchange", syncCaretLine);
   document.addEventListener("pointerdown", onDocumentPointerDown); // 右键菜单：点任何地方都收
+  document.addEventListener("pointerup", onDocumentPointerUp);
+  document.addEventListener("pointercancel", onDocumentPointerUp);
 });
 
 onUnmounted(() => {
@@ -377,6 +385,8 @@ onUnmounted(() => {
   resizeObserver = null;
   document.removeEventListener("selectionchange", syncCaretLine);
   document.removeEventListener("pointerdown", onDocumentPointerDown);
+  document.removeEventListener("pointerup", onDocumentPointerUp);
+  document.removeEventListener("pointercancel", onDocumentPointerUp);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
   if (actionCopyTimer !== null) clearTimeout(actionCopyTimer);
@@ -930,9 +940,18 @@ function onContextMenu(e: MouseEvent): void {
   updateActionBar(); // 右键菜单与浮条不同时出现
 }
 
-/// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）
+/// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）；
+/// 同时收起浮条：按住期间不显示（见 `开发经验.md` §3.22）
 function onDocumentPointerDown(): void {
+  pointerHeld = true;
   closeContextMenu();
+  updateActionBar();
+}
+
+/// 抬起后延后一拍再让浮条回来，让右键的 `contextmenu` 先落到 textarea 上
+function onDocumentPointerUp(): void {
+  pointerHeld = false;
+  setTimeout(updateActionBar, 0);
 }
 
 /**
