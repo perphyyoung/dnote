@@ -17,6 +17,7 @@ import {
   selectionLines,
 } from "@/features/notes/logic";
 import ContextMenu from "@/features/notes/ContextMenu.vue";
+import LineActionBar from "@/features/notes/LineActionBar.vue";
 import {
   decodePayload,
   encodePayload,
@@ -42,9 +43,6 @@ import { log } from "@/utils/logger";
  * 全部差异（内部状态如 `boxes` / `drag` 都是 setup 内的 ref，每个实例各一份）。
  */
 const props = defineProps<{ fontSize: number; lineHeightRatio: number; panel: Panel }>();
-const emit = defineEmits<{
-  (e: "locate", payload: { panel: Panel; line: number } | null): void;
-}>();
 
 const { content, lines, setContent, flushNow } = useNotes(props.panel);
 
@@ -79,13 +77,19 @@ const mirror = ref<HTMLDivElement | null>(null);
 /** 指针当前停在第几行：只让这一行的手柄显形，界面保持安静 */
 const hoverIndex = ref<number | null>(null);
 
+// ── 光标行操作浮条：跟着光标行走，不跟指针（否则指针移去点它时它会跑）─────────
+const BAR_GAP = 6;
+/** 浮条尺寸（24px 按钮 + 4px 内边距 + 1px 边框；宽度按行颜色入口是否显示分两档）：只用来夹取位置 */
+const BAR_H = 34;
+const BAR_W_FULL = 118;
+const BAR_W_NO_COLOR = 90;
+
+const actionBar = ref<{ line: number; x: number; y: number } | null>(null);
+const actionCopyFeedback = ref<{ line: number; ok: boolean } | null>(null);
+let actionCopyTimer: ReturnType<typeof setTimeout> | null = null;
+
 /** 「当前行」＝光标所在的那一行；编辑器失焦时为 null（没有焦点就没有当前行） */
 const caretIndex = ref<number | null>(null);
-
-/// 标题条的行标记入口只认“当前行”：行号有了才出现，失焦 / 刚打开就收起
-watch(caretIndex, (line) => {
-  emit("locate", line === null ? null : { panel: props.panel, line });
-});
 
 /** 松手后落点闪一下给个「落在这儿了」的收尾（整块：首末行都圈上） */
 const droppedRange = ref<{ first: number; last: number } | null>(null);
@@ -198,12 +202,125 @@ function measure(): void {
     const rect = child.getBoundingClientRect();
     return { top: rect.top - base, height: rect.height };
   });
+  updateActionBar(); // 行盒变了，光标行浮条的位置也要跟着重算
 }
 
 // 文本或行高（字号 × 行高比）一变就重测；flush: 'post' = 等镜像的 DOM 更新完再量。
 // 容器宽度那一路由下面的 ResizeObserver 负责 —— **别把 ROW_H 漏掉**：漏了就会拿旧行高下的
 // 行盒去配新行高（`rowSpan` 因此凭空算出折行），假换行符会一直挂到下次改文本为止。
 watch([lines, ROW_H], measure, { flush: "post" });
+
+// ── 光标行操作浮条：位置跟着光标行，指针移动不会让它跑 ──────────────────────
+function barWidth(): number {
+  return showLineColors.value ? BAR_W_FULL : BAR_W_NO_COLOR;
+}
+
+/// 光标在视口里的锚点：`x` = 光标左缘，`top` = 光标所在**视觉行**的上沿。
+/// 折行 / 字号 / 滚动都由镜像实测给出；空行或取不到 range 时退回行盒左缘与上沿。
+function caretAnchor(line: number): { x: number; top: number } | null {
+  const el = mirror.value;
+  const area = editor.value;
+  if (!el || !area) return null;
+  const lineEl = el.children[line];
+  if (!(lineEl instanceof HTMLElement)) return null;
+  const lineRect = lineEl.getBoundingClientRect();
+  const { column } = caretLine(area.value, area.selectionStart);
+  const text = lineEl.firstChild;
+  if (text !== null && text.nodeType === Node.TEXT_NODE) {
+    const offset = Math.min(column, text.textContent?.length ?? 0);
+    const range = document.createRange();
+    range.setStart(text, offset);
+    range.collapse(true);
+    const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+    if (rect.width > 0 || rect.height > 0) return { x: rect.left, top: rect.top };
+  }
+  return { x: lineRect.left, top: lineRect.top };
+}
+
+/// 浮条位置：水平以光标 x 为中心（尽量缩短操作距离）、限制在编辑器内（右侧给圆把手让位），
+/// 垂直贴光标所在视觉行：优先上方，放不下翻到下方；行完全滚出可视区时返回 null。
+function barPosition(line: number): { x: number; y: number } | null {
+  const el = scroller.value;
+  if (!el) return null;
+  const anchor = caretAnchor(line);
+  if (anchor === null) return null;
+  const rect = el.getBoundingClientRect();
+  const topEdge = rect.top + 4;
+  const bottomEdge = rect.bottom - 4;
+  const visualTop = anchor.top;
+  const visualBottom = anchor.top + ROW_H.value;
+  if (visualBottom < rect.top || visualTop > rect.bottom) return null; // 视觉行不在可视区
+  const width = barWidth();
+  // 右侧多让 10px：次级面板的圆把手压在面板右缘，且 `z-40` 高于浮条
+  const left = Math.max(rect.left + 4, Math.min(anchor.x - width / 2, rect.right - width - 14));
+  let top = visualTop - BAR_GAP - BAR_H;
+  if (top < topEdge) top = visualBottom + BAR_GAP; // 顶部放不下 → 放到视觉行下方
+  top = Math.min(Math.max(top, topEdge), Math.max(topEdge, bottomEdge - BAR_H));
+  return { x: left, y: top };
+}
+
+function clearActionCopy(): void {
+  actionCopyFeedback.value = null;
+  if (actionCopyTimer !== null) {
+    clearTimeout(actionCopyTimer);
+    actionCopyTimer = null;
+  }
+}
+
+/// 光标行 / 布局 / 滚动变化后重算浮条；失焦、拖拽、右键菜单、行滚出可视区都收起
+function updateActionBar(): void {
+  const line = caretIndex.value;
+  if (line === null || drag.value !== null || contextMenu.value !== null) {
+    actionBar.value = null;
+    clearActionCopy();
+    return;
+  }
+  const pos = barPosition(line);
+  if (pos === null || line >= lines.value.length) {
+    actionBar.value = null;
+    clearActionCopy();
+    return;
+  }
+  if (actionBar.value?.line !== line) clearActionCopy(); // 换行了，旧行的对勾作废
+  actionBar.value = { line, ...pos };
+}
+
+/// 只有反馈仍属于浮条当前行时才显示在按钮上
+const actionCopyState = computed<"ok" | "fail" | null>(() => {
+  const bar = actionBar.value;
+  const feedback = actionCopyFeedback.value;
+  if (bar === null || feedback === null || feedback.line !== bar.line) return null;
+  return feedback.ok ? "ok" : "fail";
+});
+
+/// 浮条复制：与右键菜单共用 `copyLines`（带颜色 / 星标）
+async function copyActionLine(): Promise<void> {
+  const line = actionBar.value?.line;
+  if (line === undefined) return;
+  const ok = await copyLines(line, line);
+  if (actionBar.value?.line !== line) return; // 复制期间换行了：反馈别挂到新行
+  actionCopyFeedback.value = { line, ok };
+  if (actionCopyTimer !== null) clearTimeout(actionCopyTimer);
+  actionCopyTimer = setTimeout(() => {
+    actionCopyTimer = null;
+    actionCopyFeedback.value = null;
+  }, 1_200);
+}
+
+/// 浮条删除：直接删（与 Ctrl+D 同一实现）；光标行变了之后 `updateActionBar` 会把它摆到新行
+function deleteActionLine(): void {
+  const line = actionBar.value?.line;
+  if (line === undefined) return;
+  deleteLineAt(line);
+}
+
+function onScrollerScroll(): void {
+  closeContextMenu();
+  updateActionBar(); // 浮条是 fixed 坐标，滚动后要跟着行重算
+}
+
+// 光标行一变就重新摆浮条（失焦变 null → 收起）
+watch(caretIndex, updateActionBar, { flush: "post" });
 
 /** 插入线只在真会换位时出现：插回块内（块首上边 … 块末下边）都等于没动 */
 const showInsertLine = computed(() => {
@@ -223,7 +340,12 @@ function syncCaretLine(): void {
     return;
   }
   const index = caretLine(el.value, el.selectionStart).index;
-  if (caretIndex.value !== index) caretIndex.value = index;
+  if (caretIndex.value !== index) {
+    caretIndex.value = index;
+  } else {
+    // 同一行内移动：浮条不换行，但要跟着光标的 x 走（点 / 方向键 / 打字都会到这里）
+    updateActionBar();
+  }
 }
 
 /** 失焦：既落盘，也要收掉「当前行」高亮（blur 不会触发 selectionchange，得自己叫一次） */
@@ -238,6 +360,7 @@ let resizeObserver: ResizeObserver | null = null;
 
 onMounted(() => {
   measure();
+  // 宽度一变折行就变，行盒与光标行浮条的位置都要重算（`measure` 里会一起做）
   resizeObserver = new ResizeObserver(measure);
   if (scroller.value) resizeObserver.observe(scroller.value);
   document.addEventListener("selectionchange", syncCaretLine);
@@ -251,6 +374,7 @@ onUnmounted(() => {
   document.removeEventListener("pointerdown", onDocumentPointerDown);
   stopAutoScroll();
   if (dropTimer !== null) clearTimeout(dropTimer);
+  if (actionCopyTimer !== null) clearTimeout(actionCopyTimer);
   document.body.classList.remove("dragging");
 });
 
@@ -332,6 +456,7 @@ function onHandleDown(e: PointerEvent): void {
     ghostWidth: rect.width,
   };
   updateFromPointer(e.clientY);
+  updateActionBar(); // 拖拽中浮条收起
   document.body.classList.add("dragging");
   startAutoScroll();
 }
@@ -347,6 +472,7 @@ function onHandleUp(): void {
   drag.value = null;
   stopAutoScroll();
   document.body.classList.remove("dragging");
+  updateActionBar(); // 拖拽结束：光标行浮条回来（若真搬了，applyEdit 会再按新行摆一次）
   // 插回块内（块首上边 … 块末下边）等于没动：不写盘也不闪
   if (d.insert >= d.first && d.insert <= d.last + 1) return;
   // 插入位是「移除之前」的下标：往后拖时要减去整块长度
@@ -380,6 +506,7 @@ function onHandleCancel(): void {
   drag.value = null;
   stopAutoScroll();
   document.body.classList.remove("dragging");
+  updateActionBar(); // 拖拽结束：光标行浮条回来（若真搬了，applyEdit 会再按新行摆一次）
 }
 
 /** 指针位置 → 插入位。插入线因此永远「画在哪就插在哪」，来回拖也不会累积误差 */
@@ -509,6 +636,12 @@ function onKeydown(e: KeyboardEvent): void {
     // 菜单开着时 `Esc` 先归它（设置 / 帮助浮层的遮罩盖住整个编辑器，两者不会同时在）
     e.preventDefault();
     closeContextMenu();
+    return;
+  }
+  if (e.code === "Escape") {
+    // Esc = 取消当前行：失焦后当前行高亮与浮条一起消失；不碰文本、选区与撤销栈
+    e.preventDefault();
+    editor.value?.blur();
     return;
   }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
@@ -737,11 +870,6 @@ async function pasteFromClipboard(fallback: string): Promise<void> {
   document.execCommand("insertText", false, text);
 }
 
-/// 标题条「复制当前行」调它：整行复制（带颜色 / 星标），返回是否成功（反馈由外壳显示）
-async function copyLine(index: number): Promise<boolean> {
-  return copyLines(index, index);
-}
-
 // ── 右键菜单：复制 / 删除（多行时作用于整个选区）────────────────────────────────
 // 命中规则**不自己算几何**：Chromium 右键点在选区外时原生就把插入符挪到点击处、点在选区内则
 // 保留选区 —— 所以「读一次 selectionStart/End」就等价于「选区内 → 整个选区 / 选区外 → 那一行」。
@@ -781,7 +909,9 @@ const menuItems = computed(() => {
 });
 
 function closeContextMenu(): void {
+  if (contextMenu.value === null) return;
   contextMenu.value = null;
+  updateActionBar(); // 菜单收起后光标行浮条可以回来
 }
 
 /// 右键：摆到指针处（越界由 `ContextMenu` 自己夹），范围按**此刻**的选区算
@@ -792,6 +922,7 @@ function onContextMenu(e: MouseEvent): void {
   const range = selectionLines(el.value, el.selectionStart, el.selectionEnd);
   const first = range?.first ?? caretLine(el.value, el.selectionStart).index;
   contextMenu.value = { x: e.clientX, y: e.clientY, first, last: range?.last ?? first };
+  updateActionBar(); // 右键菜单与浮条不同时出现
 }
 
 /// 点窗口任何地方都收（菜单卡片自己 `@pointerdown.stop`，所以点菜单项不会被这里先摘掉）
@@ -903,6 +1034,7 @@ function applyEdit(
     depth: 0,
   };
   syncCaretLine(); // 程序化改光标不一定触发 selectionchange，这里补一次，当前行立刻跟上
+  updateActionBar(); // 行号 / 行盒可能都变了，浮条按新的光标行重摆
   flushNow();
 }
 
@@ -914,7 +1046,7 @@ function replaceAll(text: string): void {
   applyEdit(text, { start: 0, end: 0 }, 0);
 }
 
-defineExpose({ replaceAll, copyLine, deleteLineAt });
+defineExpose({ replaceAll });
 
 // ── 拖到边缘自动滚动（长笔记必需，否则拖不到窗口外的行）────────────────────
 let raf = 0;
@@ -970,7 +1102,7 @@ function flashDropped(first: number, last: number): void {
     @pointerdown="onScrollerDown"
     @pointermove="onHover"
     @pointerleave="hoverIndex = null"
-    @scroll="closeContextMenu"
+    @scroll="onScrollerScroll"
   >
     <!-- 背景装饰层：必须在 textarea **之下** —— 当前行高亮是「给这一行铺底色」，
          而不是「给文字蒙一层灰」。画在文字之上的半透明色块会把文字一起压暗，
@@ -1230,6 +1362,17 @@ function flashDropped(first: number, last: number): void {
       </span>
     </div>
   </div>
+
+  <!-- 光标行操作浮条：fixed 视口坐标，跟着光标行（不跟指针）决定上 / 下与作用对象 -->
+  <LineActionBar
+    v-if="actionBar"
+    :panel="panel"
+    :line="actionBar.line"
+    :copy-state="actionCopyState"
+    :style="{ left: `${actionBar.x}px`, top: `${actionBar.y}px` }"
+    @copy="copyActionLine"
+    @delete="deleteActionLine"
+  />
 
   <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），
        菜单项与动作全由这里组装 —— 只有这里知道选区覆盖哪几行。 -->

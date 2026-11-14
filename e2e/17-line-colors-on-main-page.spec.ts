@@ -1,5 +1,5 @@
 /**
- * 行颜色：点进某行 → 标题条「行颜色」入口 → 色板选色 → 行下方细线出现；
+ * 行颜色：点进某行 → 光标行浮条里的「行颜色」入口 → 色板选色 → 行下方细线出现；
  * 可还原默认、重载记住；删掉有色行后颜色不串到下一行，Alt+↑/↓ 移动时颜色跟着行走；
  * Ctrl+D 删除后 Ctrl+Z 还原颜色回来、在有色行上方插入新行时下方颜色留在原行、
  * 清除连续空行后颜色按行号映射跟随。
@@ -33,7 +33,7 @@ async function expectColor(page: Page, index: number, color: string, message?: s
   expect(await line.getAttribute("style"), message).toContain(color);
 }
 
-/// 定位到第 index 行（标题条入口随之出现），再点标题条入口打开色板
+/// 定位到第 index 行（光标行浮条随之出现），再点浮条里的行颜色入口打开色板
 async function openPalette(page: Page, index: number) {
   await caretTo(page, index, 0);
   await page.getByRole("button", { name: "行颜色", exact: true }).click();
@@ -77,7 +77,9 @@ test.describe("行颜色", () => {
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
   });
 
-  test("标题条开关：隐藏后不画细线，色板入口一并隐藏，重载仍隐藏，再点恢复", async ({ page }) => {
+  test("显示开关：隐藏后不画细线，浮条里的色板入口一并隐藏，重载仍隐藏，再点恢复", async ({
+    page,
+  }) => {
     const palette = await openPalette(page, 1);
     await palette.getByRole("button", { name: "红" }).click();
     await expectColor(page, 1, RED);
@@ -89,7 +91,7 @@ test.describe("行颜色", () => {
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
 
-    // 点右侧开关会让编辑器失焦，重新定位一行再看中间入口：星标在、行颜色不在
+    // 点右侧开关会让编辑器失焦，重新定位一行再看浮条：星标在、行颜色不在
     await caretTo(page, 1, 0);
     await expect(page.getByRole("button", { name: "星标当前行" })).toBeVisible();
     await expect(colorEntry).toHaveCount(0);
