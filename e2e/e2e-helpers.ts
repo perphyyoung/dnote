@@ -437,6 +437,12 @@ export function readClipboard(): string {
   return b64 ? Buffer.from(b64, "base64").toString("utf8") : "";
 }
 
+/// 等剪贴板真的变成这段文字：复制 / 粘贴都是异步的，**必须在 `withClipboard` 内调用**，
+/// 否则锁提前释放，别的 worker 可能在这两步之间改写 / 占用剪贴板（见 `01` 的偶发空粘贴）。
+export async function expectClipboardText(text: string, timeout = 3_000): Promise<void> {
+  await expect.poll(() => readClipboard().replace(/\r\n/g, "\n"), { timeout }).toBe(text);
+}
+
 /// 按住第 from 行的手柄，把它拖到第 to 行。
 /// 必须分步移动：一步跳到目标不会产生中间的 pointermove，而指针位置正是落点的依据。
 export function dragLine(

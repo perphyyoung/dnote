@@ -9,9 +9,9 @@ import {
   caretTo,
   dragLineWith,
   editorText,
+  expectClipboardText,
   expectPersistedLines,
   mirrorBoxes,
-  readClipboard,
   seedLines,
   setClipboard,
   test,
@@ -139,7 +139,7 @@ test.describe("光标行操作浮条", () => {
       e2eLog.info(`[line-action-bar] 复制成功图标颜色 ${okColor}`);
       expect(g, "对勾应为绿色").toBeGreaterThan(r);
       expect(g).toBeGreaterThan(b);
-      await expect.poll(() => readClipboard(), { timeout: 3_000 }).toBe("第二行");
+      await expectClipboardText("第二行");
       await expect(copy).not.toHaveAttribute("data-copy-state", "ok", { timeout: 3_000 });
     });
 

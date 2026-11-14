@@ -9,23 +9,18 @@
  * （只改 UI 不写剪贴板的实现会在这里露馅）。
  */
 import { expect, type Page } from "@playwright/test";
-import { caretTo, readClipboard, seedLines, test, withClipboard } from "./e2e-helpers";
+import { caretTo, expectClipboardText, seedLines, test, withClipboard } from "./e2e-helpers";
 import { e2eLog } from "./e2e-logger";
 
 /// 预置三行：这样「选前两行」这种非全覆盖的断言才有区分度
 const LINES = ["第一行", "第二行", "第三行"];
 
-/// 剪贴板里的换行在 Windows 上可能是 CRLF，统一后再比较
-function normalizeClipboard(text: string): string {
-  return text.replace(/\r\n/g, "\n");
-}
-
-/// 按 Ctrl+C 并读回剪贴板内容。剪贴板是整机唯一资源，整段（含按键）都要在锁内，
-/// 否则别的 worker 可能在这两步之间插进来写剪贴板。
-function copyAndRead(page: Page): Promise<string> {
+/// 按 Ctrl+C，等剪贴板真的出现 `expected` 再出锁（复制是异步的）
+async function copyAndRead(page: Page, expected: string): Promise<string> {
   return withClipboard(async () => {
     await page.keyboard.press("Control+C");
-    return normalizeClipboard(readClipboard());
+    await expectClipboardText(expected);
+    return expected;
   });
 }
 
@@ -40,7 +35,7 @@ test.describe("主界面多行选择与复制", () => {
     await page.keyboard.press("Shift+ArrowDown"); // 选到第三行行首
     await page.keyboard.press("Shift+End"); // 再选到第三行行尾
 
-    const text = await copyAndRead(page);
+    const text = await copyAndRead(page, "第二行\n第三行");
     e2eLog.info("[copy] 剪贴板内容", text);
     expect(text).toBe("第二行\n第三行");
   });
@@ -50,13 +45,13 @@ test.describe("主界面多行选择与复制", () => {
     await page.keyboard.press("Shift+Home"); // 选到第三行行首
     await page.keyboard.press("Shift+ArrowUp"); // 再往上吃到第二行行首
 
-    expect(await copyAndRead(page)).toBe("第二行\n第三行");
+    expect(await copyAndRead(page, "第二行\n第三行")).toBe("第二行\n第三行");
   });
 
   test("Ctrl+A 全选后复制的是整份内容", async ({ page }) => {
     await caretTo(page, 0, 0);
     await page.keyboard.press("Control+A");
 
-    expect(await copyAndRead(page)).toBe(LINES.join("\n"));
+    expect(await copyAndRead(page, LINES.join("\n"))).toBe(LINES.join("\n"));
   });
 });

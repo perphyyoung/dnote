@@ -2,7 +2,7 @@
  * 带标记复制 / 粘贴：应用内复制把行颜色与星标一起带走；外部只拿纯文字。
  *
  * 断言只认语义：颜色看 `[data-line-color-underline]` 的内联样式、星标看
- * `[data-line-star]`，剪贴板文字走 `readClipboard()`（PowerShell 真读系统剪贴板）。
+ * `[data-line-star]`，剪贴板文字走 `expectClipboardText()`（PowerShell 真读系统剪贴板）。
  * 所有剪切板动作包在 `withClipboard` 内。
  */
 import { expect, type Page } from "@playwright/test";
@@ -11,7 +11,7 @@ import {
   LINE_RED,
   caretTo,
   editor,
-  readClipboard,
+  expectClipboardText,
   seedLines,
   setClipboard,
   test,
@@ -43,11 +43,6 @@ async function star(page: Page, index: number) {
   await page.getByRole("button", { name: "星标当前行" }).click();
 }
 
-/// 复制是异步 invoke：等系统剪贴板真的出现这段文字，再继续粘贴 / 断言
-async function waitClipboard(text: string) {
-  await expect.poll(() => readClipboard().replace(/\r\n/g, "\n"), { timeout: 3000 }).toBe(text);
-}
-
 test.describe("带色复制粘贴", () => {
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
@@ -68,14 +63,15 @@ test.describe("带色复制粘贴", () => {
     await withClipboard(async () => {
       await page.keyboard.press("Shift+ArrowDown"); // 选中「甲」+ 换行
       await page.keyboard.press("Control+c");
-      await waitClipboard("甲\n");
+      await expectClipboardText("甲\n");
 
       await page.keyboard.press("Control+End");
       await page.keyboard.press("Enter");
       await page.keyboard.press("Control+v");
+      // 粘贴是异步读剪贴板：等值落定再出锁
+      await expect(editor(page)).toHaveValue("甲\n乙\n丙\n甲\n");
     });
 
-    await expect(editor(page)).toHaveValue("甲\n乙\n丙\n甲\n");
     await expectColor(page, 3, LINE_RED);
     await expect(lineStar(page, 3), "星标应随文字一起粘到新行").toHaveCount(1);
   });
@@ -86,14 +82,14 @@ test.describe("带色复制粘贴", () => {
 
     await withClipboard(async () => {
       await page.getByRole("button", { name: "复制当前行" }).click();
-      await waitClipboard("乙");
+      await expectClipboardText("乙");
       await editor(page).click();
       await page.keyboard.press("Control+End");
       await page.keyboard.press("Enter");
       await page.keyboard.press("Control+v");
+      await expect(editor(page)).toHaveValue("甲\n乙\n丙\n乙");
     });
 
-    await expect(editor(page)).toHaveValue("甲\n乙\n丙\n乙");
     await expectColor(page, 3, LINE_BLUE);
     await expect(lineStar(page, 3), "星标应随文字一起粘到新行").toHaveCount(1);
   });
@@ -107,8 +103,8 @@ test.describe("带色复制粘贴", () => {
       await editor(page).click();
       await page.keyboard.press("Control+Home");
       await page.keyboard.press("Control+v");
+      await expect(editor(page)).toHaveValue("外部\n甲\n乙\n丙");
     });
-    await expect(editor(page)).toHaveValue("外部\n甲\n乙\n丙");
     await expect(page.locator(ALL_LINES)).toHaveCount(1); // 只有原来那一行红色
     await expect(page.locator("[data-line-star]")).toHaveCount(1); // 也只有原来那一颗星
 
@@ -117,9 +113,10 @@ test.describe("带色复制粘贴", () => {
     await withClipboard(async () => {
       await page.keyboard.press("Shift+ArrowDown");
       await page.keyboard.press("Control+c");
-      await waitClipboard("甲\n");
+      await expectClipboardText("甲\n");
       await caretTo(page, 4, 1);
       await page.keyboard.press("Control+v");
+      await expect(editor(page)).toHaveValue("外部\n甲\n乙\n丙甲\n");
     });
     await expect(page.locator(ALL_LINES)).toHaveCount(1);
     await expect(page.locator("[data-line-star]")).toHaveCount(1);
@@ -133,10 +130,11 @@ test.describe("带色复制粘贴", () => {
     await withClipboard(async () => {
       await page.keyboard.press("Shift+ArrowDown");
       await page.keyboard.press("Control+c");
-      await waitClipboard("甲\n");
+      await expectClipboardText("甲\n");
       await page.keyboard.press("Control+End");
       await page.keyboard.press("Enter");
       await page.keyboard.press("Control+v");
+      await expect(editor(page)).toHaveValue("甲\n乙\n丙\n甲\n");
     });
     await expectColor(page, 3, LINE_RED);
     await expect(lineStar(page, 3)).toHaveCount(1);

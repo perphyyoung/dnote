@@ -14,9 +14,9 @@ import type { Page } from "@playwright/test";
 import {
   caretTo,
   editorText,
+  expectClipboardText,
   expectPersistedLines,
   notesFile,
-  readClipboard,
   rightClickLine,
   seedLines,
   selection,
@@ -88,21 +88,13 @@ test.describe("右键菜单", () => {
     await page.keyboard.press("Shift+End"); // 选中第 2、3 行
     await rightClickLine(page, 2);
 
-    // 菜单里的复制走**异步**剪贴板 API，点完不等于已经写完 —— 先放哨兵再等它被换掉，
-    // 比"睡一会儿再读"确定。整段（含点击与读写）都在 `withClipboard` 锁内。
-    const text = await withClipboard(async () => {
+    // 菜单里的复制走**异步**剪贴板 API：等哨兵被换掉再出锁（整段都在锁内）
+    await withClipboard(async () => {
       setClipboard("哨兵");
       await item(page, "复制 2 行").click();
-      const deadline = Date.now() + 3000;
-      let read = readClipboard();
-      while (read === "哨兵" && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        read = readClipboard();
-      }
-      return read.replace(/\r\n/g, "\n");
+      await expectClipboardText("第二行\n第三行");
     });
-    e2eLog.info("[menu] 复制 2 行的剪贴板内容", text);
-    expect(text).toBe("第二行\n第三行");
+    e2eLog.info("[menu] 复制 2 行的剪贴板内容", "第二行\n第三行");
   });
 
   test("贴指针、越界翻转：靠右缘右键时菜单仍完整落在窗口内", async ({ page }) => {
