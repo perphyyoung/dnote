@@ -43,7 +43,10 @@ export default function globalSetup(): void {
   const targetDir = e2eTargetDir();
   const started = Date.now();
   e2eLog.info(`[global-setup] 构建 e2e 二进制（target=${targetDir}）`);
-  execSync("pnpm tauri build --debug --no-bundle", {
+  // e2e 专用配置把 beforeBuildCommand 换成 `build:stable`：dist 内容未变时保留 mtime，
+  // 否则 tauri/custom-protocol 每轮都会因 dist 重写而重编 dnote（见 AGENTS.md 环境要点）
+  const e2eConfig = join(import.meta.dirname, "..", "src-tauri", "tauri.e2e.conf.json");
+  execSync(`pnpm tauri build --debug --no-bundle --config "${e2eConfig}"`, {
     cwd: join(import.meta.dirname, ".."),
     // 不吞输出：cargo/前端构建进度实时可见，避免看起来卡住
     stdio: "inherit",
