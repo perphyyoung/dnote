@@ -35,6 +35,8 @@ test.describe("主界面多行粘贴", () => {
     await withClipboard(async () => {
       setClipboard(LINES.join("\r\n"));
       await pasteAt(page, 0);
+      // 粘贴是异步读系统剪贴板：等值落定再出锁，避免高负载下读到空值
+      await expect(editor(page)).toHaveValue(LINES.join("\n"));
     });
 
     const text = await editorText(page);
@@ -52,9 +54,10 @@ test.describe("主界面多行粘贴", () => {
       await editor(page).click();
       await caretTo(page, 0, 1); // 光标落在 a 与 b 之间
       await page.keyboard.press("Control+V");
+      // 粘贴是异步读系统剪贴板：等值落定再出锁，否则高负载下会读到旧值
+      await expect(editor(page)).toHaveValue("aX\nYb");
     });
 
-    expect(await editorText(page)).toBe("aX\nYb");
     await expectPersistedLines(app.dataDir, ["aX", "Yb"]);
   });
 });
