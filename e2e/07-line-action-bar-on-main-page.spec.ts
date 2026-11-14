@@ -1,5 +1,5 @@
 /**
- * 光标行操作浮条：复制 / 星标 / 行颜色 / 删除。
+ * 光标行操作浮条：复制 / 星标 / 四档行颜色 / 删除 / 编辑器失焦。
  *
  * 浮条跟**光标行**出现（编辑器聚焦即显示），失焦 / 拖拽 / 右键菜单 / 行滚出可视区时收起；
  * 水平跟光标 x，垂直在光标所在视觉行上方或下方。指针移动不影响它的位置。
@@ -30,6 +30,8 @@ const starButton = (page: Page) =>
   bar(page).getByRole("button", { name: "星标当前行", exact: true });
 const swatch = (page: Page, name: "无色" | "红" | "绿" | "蓝") =>
   bar(page).getByRole("button", { name, exact: true });
+const blurButton = (page: Page) =>
+  bar(page).getByRole("button", { name: "编辑器失焦", exact: true });
 
 /// 当前行高亮层：靠数据属性找，不依赖 class
 const caretLine = (page: Page) => page.locator("[data-caret-line]");
@@ -79,7 +81,7 @@ test.describe("光标行操作浮条", () => {
 
     // 同一行内把光标往右移：浮条跟着光标 x 右移
     const xAtStart = box.x;
-    await caretTo(page, 0, 8);
+    await caretTo(page, 0, 9);
     await expect
       .poll(async () => (await bar(page).boundingBox())?.x ?? xAtStart)
       .toBeGreaterThan(xAtStart + 20);
@@ -92,7 +94,9 @@ test.describe("光标行操作浮条", () => {
     expect(box.y + box.height).toBeLessThanOrEqual(boxes2[2].top + 1);
   });
 
-  test("七颗按钮从左到右：复制 / 星标 / 无色 / 红 / 绿 / 蓝 / 删除", async ({ page }) => {
+  test("八颗按钮从左到右：复制 / 星标 / 无色 / 红 / 绿 / 蓝 / 删除 / 编辑器失焦", async ({
+    page,
+  }) => {
     await caretTo(page, 1, 0);
 
     const boxes = [
@@ -103,6 +107,7 @@ test.describe("光标行操作浮条", () => {
       { name: "绿", locator: swatch(page, "绿") },
       { name: "蓝", locator: swatch(page, "蓝") },
       { name: "删除当前行", locator: deleteButton(page) },
+      { name: "编辑器失焦", locator: blurButton(page) },
     ];
     const xs: number[] = [];
     for (const item of boxes) {
@@ -155,12 +160,26 @@ test.describe("光标行操作浮条", () => {
     await expectPersistedLines(app.dataDir, LINES);
   });
 
-  test("Esc 取消当前行：浮条与高亮消失，编辑器失焦", async ({ page }) => {
+  test("Esc：编辑器失焦，浮条与高亮消失", async ({ page }) => {
     await caretTo(page, 1, 0);
     await expect(bar(page)).toBeVisible();
     await expect(caretLine(page)).toHaveAttribute("data-caret-line", "1");
 
     await page.keyboard.press("Escape");
+
+    await expect(bar(page)).toHaveCount(0);
+    await expect(caretLine(page)).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("TEXTAREA");
+    // 文本不受影响
+    expect(await editorText(page)).toBe(LINES.join("\n"));
+  });
+
+  test("浮条最右的叉号：编辑器失焦，浮条与高亮消失", async ({ page }) => {
+    await caretTo(page, 1, 0);
+    await expect(bar(page)).toBeVisible();
+    await expect(caretLine(page)).toHaveAttribute("data-caret-line", "1");
+
+    await blurButton(page).click();
 
     await expect(bar(page)).toHaveCount(0);
     await expect(caretLine(page)).toHaveCount(0);

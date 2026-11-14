@@ -79,10 +79,10 @@ const hoverIndex = ref<number | null>(null);
 
 // ── 光标行操作浮条：跟着光标行走，不跟指针（否则指针移去点它时它会跑）─────────
 const BAR_GAP = 6;
-/** 浮条尺寸（24px 按钮 + 4px 内边距 + 1px 边框；宽度按行颜色四档是否显示分两档）：只用来夹取位置 */
+/** 浮条尺寸（24px 按钮 + 4px 内边距 + 1px 边框；宽度按行颜色四档是否显示分两档，共 8 颗 / 4 颗按钮）：只用来夹取位置 */
 const BAR_H = 34;
-const BAR_W_FULL = 202;
-const BAR_W_NO_COLOR = 90;
+const BAR_W_FULL = 230;
+const BAR_W_NO_COLOR = 118;
 
 const actionBar = ref<{ line: number; x: number; y: number } | null>(null);
 const actionCopyFeedback = ref<{ line: number; ok: boolean } | null>(null);
@@ -312,6 +312,11 @@ function deleteActionLine(): void {
   const line = actionBar.value?.line;
   if (line === undefined) return;
   deleteLineAt(line);
+}
+
+/// 编辑器失焦：浮条最右的叉号与 `Esc` 共用这一条，失焦后高亮与浮条一起消失
+function blurEditor(): void {
+  editor.value?.blur();
 }
 
 function onScrollerScroll(): void {
@@ -639,9 +644,9 @@ function onKeydown(e: KeyboardEvent): void {
     return;
   }
   if (e.code === "Escape") {
-    // Esc = 取消当前行：失焦后当前行高亮与浮条一起消失；不碰文本、选区与撤销栈
+    // Esc = 编辑器失焦：与浮条最右的叉号同一条实现；不碰文本、选区与撤销栈
     e.preventDefault();
-    editor.value?.blur();
+    blurEditor();
     return;
   }
   if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.code === "KeyD") {
@@ -1372,6 +1377,7 @@ function flashDropped(first: number, last: number): void {
     :style="{ left: `${actionBar.x}px`, top: `${actionBar.y}px` }"
     @copy="copyActionLine"
     @delete="deleteActionLine"
+    @blur-editor="blurEditor"
   />
 
   <!-- 右键菜单：自绘浮层（系统菜单已由 `main.ts` 全局关掉）。位置由它自己夹（见 `ContextMenu.vue`），

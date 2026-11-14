@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 光标行的操作浮条：**复制 / 星标 / 行颜色 / 删除**。
+ * 光标行的操作浮条：**复制 / 星标 / 行颜色 / 删除 / 编辑器失焦**。
  *
  * 由 `NoteEditor` 按**光标所在行**定位（`fixed`、视口坐标）后渲染；浮条不跟指针走，
- * 所以指针移到浮条上时它不会跑。这里只负责按钮、复制反馈与色板；星标 / 行颜色直接读写
- * `lineMarks`，复制 / 删除向父组件抛事件（那里才有文本、行标记与撤销栈）。
+ * 所以指针移到浮条上时它不会跑。这里只负责按钮与复制反馈；星标 / 行颜色直接读写
+ * `lineMarks`，复制 / 删除 / 编辑器失焦向父组件抛事件（那里才有文本、行标记与撤销栈）。
  *
  * 按钮一律 `mousedown.prevent`：按下不抢编辑器的焦点、也不破坏选区，光标行因此不变，
  * 浮条留在原地。
@@ -24,6 +24,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "copy"): void;
   (e: "delete"): void;
+  (e: "blur-editor"): void;
 }>();
 
 /// 面板 / 行在浮条存续期间不会变（变了父组件会重新定位），但仍按 prop 取那一份 store
@@ -41,6 +42,11 @@ function startCopy(): void {
 
 function startDelete(): void {
   emit("delete");
+}
+
+/// 最右的叉号：动作只有「编辑器失焦」，与 `Esc` 同一条实现（由父组件执行 blur）
+function blurEditor(): void {
+  emit("blur-editor");
 }
 
 /// 色板只有四档，直接平铺在浮条上；点「无色」= 清掉
@@ -179,6 +185,31 @@ function setColor(value: LineColor): void {
         <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
         <line x1="10" x2="10" y1="11" y2="17" />
         <line x1="14" x2="14" y1="11" y2="17" />
+      </svg>
+    </button>
+
+    <!-- 编辑器失焦：与 Esc 同一条实现；图标与复制 / 删除同规格（13px、stroke 2）。 -->
+    <button
+      type="button"
+      class="flex h-6 w-6 items-center justify-center rounded text-slate-300 transition hover:bg-slate-700 hover:text-slate-100"
+      aria-label="编辑器失焦"
+      title="编辑器失焦 (Esc)"
+      @mousedown.prevent
+      @click="blurEditor"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M18 6 6 18" />
+        <path d="m6 6 12 12" />
       </svg>
     </button>
 
