@@ -1,6 +1,6 @@
 /**
- * 行颜色：点进某行 → 光标行浮条里的「行颜色」入口 → 色板选色 → 行下方细线出现；
- * 可还原默认、重载记住；删掉有色行后颜色不串到下一行，Alt+↑/↓ 移动时颜色跟着行走；
+ * 行颜色：点进某行 → 光标行浮条里的四档颜色直接点选 → 行下方细线出现；
+ * 可还原无色、重载记住；删掉有色行后颜色不串到下一行，Alt+↑/↓ 移动时颜色跟着行走；
  * Ctrl+D 删除后 Ctrl+Z 还原颜色回来、在有色行上方插入新行时下方颜色留在原行、
  * 清除连续空行后颜色按行号映射跟随。
  *
@@ -33,11 +33,10 @@ async function expectColor(page: Page, index: number, color: string, message?: s
   expect(await line.getAttribute("style"), message).toContain(color);
 }
 
-/// 定位到第 index 行（光标行浮条随之出现），再点浮条里的行颜色入口打开色板
-async function openPalette(page: Page, index: number) {
+/// 定位到第 index 行（光标行浮条随之出现），再点浮条里的四档颜色之一
+async function paint(page: Page, index: number, name: "无色" | "红" | "绿" | "蓝"): Promise<void> {
   await caretTo(page, index, 0);
-  await page.getByRole("button", { name: "行颜色", exact: true }).click();
-  return page.getByRole("dialog", { name: "行颜色" });
+  await page.getByRole("button", { name, exact: true }).click();
 }
 
 test.describe("行颜色", () => {
@@ -52,10 +51,8 @@ test.describe("行颜色", () => {
     await page.reload();
   });
 
-  test("选红 → 行下方细线出现；重载仍记住；选默认还原", async ({ page }) => {
-    const palette = await openPalette(page, 1);
-    await expect(palette).toBeVisible();
-    await palette.getByRole("button", { name: "红" }).click();
+  test("选红 → 行下方细线出现；重载仍记住；选无色还原", async ({ page }) => {
+    await paint(page, 1, "红");
 
     const line = lineColor(page, 1);
     await expect(line).toBeVisible();
@@ -72,42 +69,43 @@ test.describe("行颜色", () => {
     await page.reload();
     await expectColor(page, 1, RED);
 
-    const again = await openPalette(page, 1);
-    await again.getByRole("button", { name: "默认" }).click();
+    await paint(page, 1, "无色");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
   });
 
-  test("显示开关：隐藏后不画细线，浮条里的色板入口一并隐藏，重载仍隐藏，再点恢复", async ({
+  test("显示开关：隐藏后不画细线，浮条里的四档颜色一并隐藏，重载仍隐藏，再点恢复", async ({
     page,
   }) => {
-    const palette = await openPalette(page, 1);
-    await palette.getByRole("button", { name: "红" }).click();
+    await paint(page, 1, "红");
     await expectColor(page, 1, RED);
 
     const toggle = page.getByRole("button", { name: "行颜色显示" });
-    const colorEntry = page.getByRole("button", { name: "行颜色", exact: true });
+    const swatches = ["无色", "红", "绿", "蓝"] as const;
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
 
-    // 点右侧开关会让编辑器失焦，重新定位一行再看浮条：星标在、行颜色不在
+    // 点右侧开关会让编辑器失焦，重新定位一行再看浮条：星标在、四档颜色都不在
     await caretTo(page, 1, 0);
     await expect(page.getByRole("button", { name: "星标当前行" })).toBeVisible();
-    await expect(colorEntry).toHaveCount(0);
+    for (const name of swatches) {
+      await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+    }
 
     // 开关本身也是一条偏好：重载后仍隐藏，颜色没丢
     await page.reload();
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
     await page.getByRole("button", { name: "行颜色显示" }).click();
     await caretTo(page, 1, 0);
-    await expect(colorEntry).toBeVisible();
+    for (const name of swatches) {
+      await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
+    }
     await expectColor(page, 1, RED);
   });
 
   test("删掉有色行不串到下一行；Alt+↓ 移动时颜色跟着行走", async ({ page }) => {
-    const palette = await openPalette(page, 1);
-    await palette.getByRole("button", { name: "蓝" }).click();
+    await paint(page, 1, "蓝");
     await expectColor(page, 1, BLUE);
 
     // 标题条「删除当前行」：删掉第 2 行后，原来的第 3 行顶上来但不该继承蓝色
@@ -115,16 +113,14 @@ test.describe("行颜色", () => {
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
 
     // 给第 1 行上红，再 Alt+↓ 把它与第 2 行交换 → 红色应跟到第 2 行
-    const palette2 = await openPalette(page, 0);
-    await palette2.getByRole("button", { name: "红" }).click();
+    await paint(page, 0, "红");
     await page.keyboard.press("Alt+ArrowDown");
     await expect(lineColor(page, 0)).toHaveCount(0);
     await expectColor(page, 1, RED);
   });
 
   test("Ctrl+D 删除有色行，Ctrl+Z 还原后颜色应还在", async ({ page }) => {
-    const palette = await openPalette(page, 1);
-    await palette.getByRole("button", { name: "红" }).click();
+    await paint(page, 1, "红");
     await expectColor(page, 1, RED);
 
     // Ctrl+D 走 applyEdit（进浏览器撤销栈），删掉第 2 行
@@ -140,10 +136,8 @@ test.describe("行颜色", () => {
   });
 
   test("在有色行上方插入新行，下方各行的颜色应留在原行", async ({ page }) => {
-    const palette1 = await openPalette(page, 1);
-    await palette1.getByRole("button", { name: "红" }).click();
-    const palette2 = await openPalette(page, 2);
-    await palette2.getByRole("button", { name: "蓝" }).click();
+    await paint(page, 1, "红");
+    await paint(page, 2, "蓝");
     await expectColor(page, 1, RED);
     await expectColor(page, 2, BLUE);
 
@@ -163,10 +157,8 @@ test.describe("行颜色", () => {
     await seedLines(app, page, messy);
 
     // 第 2 个空行上红、「乙」上蓝
-    const palette1 = await openPalette(page, 2);
-    await palette1.getByRole("button", { name: "红" }).click();
-    const palette2 = await openPalette(page, 3);
-    await palette2.getByRole("button", { name: "蓝" }).click();
+    await paint(page, 2, "红");
+    await paint(page, 3, "蓝");
     await expectColor(page, 2, RED);
     await expectColor(page, 3, BLUE);
 
@@ -188,8 +180,7 @@ test.describe("行颜色", () => {
     const boxes = await mirrorBoxes(page);
     expect(boxes[0].height).toBeGreaterThan(await rowHeight(page));
 
-    const palette = await openPalette(page, 0);
-    await palette.getByRole("button", { name: "红" }).click();
+    await paint(page, 0, "红");
 
     const line = lineColor(page, 0);
     await expect(line).toBeVisible();

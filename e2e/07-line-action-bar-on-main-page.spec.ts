@@ -28,7 +28,8 @@ const deleteButton = (page: Page) =>
   bar(page).getByRole("button", { name: "删除当前行", exact: true });
 const starButton = (page: Page) =>
   bar(page).getByRole("button", { name: "星标当前行", exact: true });
-const colorButton = (page: Page) => bar(page).getByRole("button", { name: "行颜色", exact: true });
+const swatch = (page: Page, name: "无色" | "红" | "绿" | "蓝") =>
+  bar(page).getByRole("button", { name, exact: true });
 
 /// 当前行高亮层：靠数据属性找，不依赖 class
 const caretLine = (page: Page) => page.locator("[data-caret-line]");
@@ -91,18 +92,30 @@ test.describe("光标行操作浮条", () => {
     expect(box.y + box.height).toBeLessThanOrEqual(boxes2[2].top + 1);
   });
 
-  test("四颗按钮从左到右：复制 / 星标 / 行颜色 / 删除", async ({ page }) => {
+  test("七颗按钮从左到右：复制 / 星标 / 无色 / 红 / 绿 / 蓝 / 删除", async ({ page }) => {
     await caretTo(page, 1, 0);
 
-    const copy = await copyButton(page).boundingBox();
-    const star = await starButton(page).boundingBox();
-    const color = await colorButton(page).boundingBox();
-    const del = await deleteButton(page).boundingBox();
-    if (!copy || !star || !color || !del) throw new Error("取不到浮条按钮的位置");
-
-    expect(copy.x).toBeLessThan(star.x);
-    expect(star.x).toBeLessThan(color.x);
-    expect(color.x).toBeLessThan(del.x);
+    const boxes = [
+      { name: "复制当前行", locator: copyButton(page) },
+      { name: "星标当前行", locator: starButton(page) },
+      { name: "无色", locator: swatch(page, "无色") },
+      { name: "红", locator: swatch(page, "红") },
+      { name: "绿", locator: swatch(page, "绿") },
+      { name: "蓝", locator: swatch(page, "蓝") },
+      { name: "删除当前行", locator: deleteButton(page) },
+    ];
+    const xs: number[] = [];
+    for (const item of boxes) {
+      const box = await item.locator.boundingBox();
+      if (!box) throw new Error(`取不到浮条按钮：${item.name}`);
+      xs.push(box.x);
+    }
+    for (let index = 1; index < xs.length; index += 1) {
+      expect(
+        xs[index],
+        `${boxes[index].name} 应排在 ${boxes[index - 1].name} 右侧`,
+      ).toBeGreaterThan(xs[index - 1]);
+    }
   });
 
   test("点「复制当前行」把这一行写进剪贴板，文档不变", async ({ page, app }) => {

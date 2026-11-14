@@ -9,7 +9,7 @@
  * 按钮一律 `mousedown.prevent`：按下不抢编辑器的焦点、也不破坏选区，光标行因此不变，
  * 浮条留在原地。
  */
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed } from "vue";
 import type { Panel } from "@/features/notes/useNotes";
 import { LINE_COLORS, type LineColor } from "@/features/settings/lineColors";
 import { showLineColors } from "@/features/settings/lineColorsVisible";
@@ -32,81 +32,21 @@ const starred = computed(() => marks.value.starAt(props.line));
 const color = computed(() => marks.value.colorAt(props.line));
 
 function toggleStar(): void {
-  closePalette();
   marks.value.setStar(props.line, !starred.value);
 }
 
-/// 其它行操作也要先把色板收掉：它挡住了当前行
 function startCopy(): void {
-  closePalette();
   emit("copy");
 }
 
 function startDelete(): void {
-  closePalette();
   emit("delete");
 }
 
-// ── 行颜色色板：fixed 浮层，贴按钮上方 / 下方（放不下就翻边）──────────────
-/// 色板尺寸（20px 按钮 × 5 列 / 2 行 + gap + padding + 边框）：只用来夹取位置
-const PALETTE_W = 134;
-const PALETTE_H = 62;
-const paletteOpen = ref(false);
-const palettePos = ref({ x: 0, y: 0 });
-
-function togglePalette(event: MouseEvent): void {
-  if (paletteOpen.value) {
-    closePalette();
-    return;
-  }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-  const below = rect.bottom + 4 + PALETTE_H <= window.innerHeight - 8;
-  palettePos.value = {
-    x: Math.max(
-      8,
-      Math.min(rect.left + rect.width / 2 - PALETTE_W / 2, window.innerWidth - PALETTE_W - 8),
-    ),
-    y: below ? rect.bottom + 4 : Math.max(8, rect.top - PALETTE_H - 4),
-  };
-  paletteOpen.value = true;
-}
-
-function pickColor(value: LineColor): void {
+/// 色板只有四档，直接平铺在浮条上；点「无色」= 清掉
+function setColor(value: LineColor): void {
   marks.value.setColor(props.line, value);
-  closePalette();
 }
-
-/// 收起色板（点浮条外 / `Esc` / 选了颜色 / 换了行）
-function closePalette(): void {
-  paletteOpen.value = false;
-}
-
-/// 行 / 面板变了就把色板收掉：它作用的是"刚才那一行"
-watch(
-  () => [props.panel, props.line],
-  () => {
-    paletteOpen.value = false;
-  },
-);
-
-/// 点浮条外任意处 / `Esc` 都收起色板（浮条根上 `pointerdown.stop`，点自己不会误收）
-function onDocumentPointerDown(): void {
-  closePalette();
-}
-
-function onDocumentKeydown(event: KeyboardEvent): void {
-  if (event.code === "Escape") closePalette();
-}
-
-onMounted(() => {
-  document.addEventListener("pointerdown", onDocumentPointerDown);
-  document.addEventListener("keydown", onDocumentKeydown);
-});
-
-onUnmounted(() => {
-  document.removeEventListener("pointerdown", onDocumentPointerDown);
-  document.removeEventListener("keydown", onDocumentKeydown);
-});
 </script>
 
 <template>
@@ -193,23 +133,26 @@ onUnmounted(() => {
       </svg>
     </button>
 
-    <!-- 行颜色：圆形色块就是当前颜色（默认 = 空心圆）。显示开关关掉时入口一并隐藏。 -->
-    <button
-      v-if="showLineColors"
-      type="button"
-      class="flex h-6 w-6 items-center justify-center rounded transition hover:bg-slate-700"
-      aria-label="行颜色"
-      title="行颜色"
-      aria-haspopup="dialog"
-      :aria-expanded="paletteOpen"
-      @mousedown.prevent
-      @click="togglePalette"
-    >
-      <span
-        class="h-2.5 w-2.5 rounded-full ring-1 ring-slate-500"
-        :style="{ backgroundColor: color ?? 'transparent' }"
-      />
-    </button>
+    <!-- 行颜色：只有「无色 + 红 / 绿 / 蓝」四档，直接平铺；显示开关关掉时整组隐藏。 -->
+    <template v-if="showLineColors">
+      <button
+        v-for="item in LINE_COLORS"
+        :key="item.label"
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded transition hover:bg-slate-700"
+        :aria-label="item.label"
+        :title="item.label"
+        :aria-pressed="color === item.value"
+        @mousedown.prevent
+        @click="setColor(item.value)"
+      >
+        <span
+          class="h-3.5 w-3.5 rounded-full"
+          :class="color === item.value ? 'ring-2 ring-slate-100' : 'ring-1 ring-slate-500'"
+          :style="{ backgroundColor: item.value ?? 'transparent' }"
+        />
+      </button>
+    </template>
 
     <!-- 删除当前行：与 Ctrl+D / 右键菜单同一条实现，直接删、靠 Ctrl+Z 兜底。 -->
     <button
@@ -242,31 +185,5 @@ onUnmounted(() => {
     <span class="sr-only" aria-live="polite">
       {{ copyState === "ok" ? "已复制" : copyState === "fail" ? "复制失败" : "" }}
     </span>
-
-    <!-- 色板：fixed 浮层（z-40，与右键菜单同档）。第一项「默认」= 清掉这一行的颜色。 -->
-    <div
-      v-if="paletteOpen"
-      class="fixed z-40 grid grid-cols-5 gap-1 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
-      :style="{ left: `${palettePos.x}px`, top: `${palettePos.y}px` }"
-      role="dialog"
-      aria-label="行颜色"
-    >
-      <button
-        v-for="item in LINE_COLORS"
-        :key="item.label"
-        type="button"
-        class="flex h-5 w-5 items-center justify-center rounded ring-1"
-        :class="color === item.value ? 'ring-slate-100' : 'ring-transparent'"
-        :aria-label="item.label"
-        :title="item.label"
-        @mousedown.prevent
-        @click="pickColor(item.value)"
-      >
-        <span
-          class="h-3 w-3 rounded-full"
-          :style="{ backgroundColor: item.value === null ? 'var(--note-fg-faint)' : item.value }"
-        />
-      </button>
-    </div>
   </div>
 </template>

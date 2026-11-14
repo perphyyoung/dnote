@@ -31,14 +31,13 @@ async function expectColor(page: Page, index: number, color: string) {
   expect(await line.getAttribute("style")).toContain(color);
 }
 
-/// 定位到某行后从标题条入口上色（入口只在定位到行时出现）
-async function paint(page: Page, index: number, name: string) {
+/// 定位到某行后直接点浮条里的四档颜色
+async function paint(page: Page, index: number, name: "无色" | "红" | "绿" | "蓝") {
   await caretTo(page, index, 0);
-  await page.getByRole("button", { name: "行颜色", exact: true }).click();
-  await page.getByRole("dialog", { name: "行颜色" }).getByRole("button", { name }).click();
+  await page.getByRole("button", { name, exact: true }).click();
 }
 
-/// 定位到某行后从标题条入口加星标
+/// 定位到某行后从浮条里加星标
 async function star(page: Page, index: number) {
   await caretTo(page, index, 0);
   await page.getByRole("button", { name: "星标当前行" }).click();

@@ -10,18 +10,17 @@
  * - **不进备份**：备份包只装两份笔记（纯文本），颜色是界面偏好，换机器不带。
  */
 
-/// 色板：第一项「默认」= 没有颜色（行下不画细线）
+/// 色板：只有「无色 + 红 / 绿 / 蓝」四种，直接平铺在浮条上。第一项 = 没有颜色（行下不画细线）
 export const LINE_COLORS = [
-  { value: null, label: "默认" },
+  { value: null, label: "无色" },
   { value: "#f43f5e", label: "红" },
-  { value: "#f59e0b", label: "橙" },
-  { value: "#eab308", label: "黄" },
   { value: "#10b981", label: "绿" },
-  { value: "#2dd4bf", label: "青" },
   { value: "#0ea5e9", label: "蓝" },
-  { value: "#818cf8", label: "靛" },
-  { value: "#8b5cf6", label: "紫" },
-  { value: "#f472b6", label: "粉" },
 ] as const;
 
 export type LineColor = string | null;
+
+/// 是否属于当前色板：旧版十色 / 手改 localStorage 的色值一律当无色（读取时统一清洗）
+export function isLineColor(value: unknown): value is LineColor {
+  return LINE_COLORS.some((option) => option.value === value);
+}

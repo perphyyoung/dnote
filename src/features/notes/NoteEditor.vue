@@ -79,9 +79,9 @@ const hoverIndex = ref<number | null>(null);
 
 // ── 光标行操作浮条：跟着光标行走，不跟指针（否则指针移去点它时它会跑）─────────
 const BAR_GAP = 6;
-/** 浮条尺寸（24px 按钮 + 4px 内边距 + 1px 边框；宽度按行颜色入口是否显示分两档）：只用来夹取位置 */
+/** 浮条尺寸（24px 按钮 + 4px 内边距 + 1px 边框；宽度按行颜色四档是否显示分两档）：只用来夹取位置 */
 const BAR_H = 34;
-const BAR_W_FULL = 118;
+const BAR_W_FULL = 202;
 const BAR_W_NO_COLOR = 90;
 
 const actionBar = ref<{ line: number; x: number; y: number } | null>(null);

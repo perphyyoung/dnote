@@ -8,7 +8,7 @@
  */
 import { ref, type Ref } from "vue";
 import type { Panel } from "@/features/notes/useNotes";
-import type { LineColor } from "@/features/settings/lineColors";
+import { isLineColor, type LineColor } from "@/features/settings/lineColors";
 
 export interface LineMarksSnapshot {
   colors: LineColor[];
@@ -24,7 +24,8 @@ function readColors(panel: Panel): LineColor[] {
     if (raw === null) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((value) => (typeof value === "string" ? value : null));
+    // 旧版十色 / 手改的值直接失效：只认当前色板，其它一律无色
+    return parsed.map((value) => (isLineColor(value) ? value : null));
   } catch {
     return [];
   }
