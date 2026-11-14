@@ -1,5 +1,0 @@
-{
-  "build": {
-    "beforeBuildCommand": "pnpm typecheck && pnpm build:stable"
-  }
-}
