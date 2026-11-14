@@ -1148,7 +1148,7 @@ function flashDropped(first: number, last: number): void {
           height: `${boxHeight(caretIndex)}px`,
         }"
       />
-      <!-- 行颜色：行盒下沿 1px 同色细线（右端渐隐），按实测行盒绘制（折行时贴块底）。
+      <!-- 行颜色：行盒下沿 2px 同色细线（右端渐隐），按实测行盒绘制（折行时贴块底）。
            画在"当前行"之后，于是当前行被标记过颜色时看到的是**那个颜色**，当前行的极淡底色照旧在。 -->
       <div
         v-for="bar in coloredBars"
@@ -1160,7 +1160,7 @@ function flashDropped(first: number, last: number): void {
           top: `${boxTop(bar.index) + boxHeight(bar.index)}px`,
           left: `${HANDLE_W}px`,
           right: '6px',
-          height: '1px',
+          height: '2px',
         }"
       />
     </div>

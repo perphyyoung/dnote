@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { commonPrefix, remapMarks, shiftMarks, spliceMarks } from "./lineMarks";
 
 const RED = "#f43f5e";
-const BLUE = "#0ea5e9";
+const BLUE = "#2563eb";
 
 describe("remapMarks", () => {
   it("普通行按映射跟随：「乙」从 index3 挪到 index2", () => {

@@ -7,6 +7,8 @@
  */
 import { expect, type Page } from "@playwright/test";
 import {
+  LINE_BLUE,
+  LINE_RED,
   caretTo,
   editor,
   readClipboard,
@@ -17,8 +19,6 @@ import {
 } from "./e2e-helpers";
 
 const LINES = ["甲", "乙", "丙"];
-const RED = "rgb(244, 63, 94)"; // #f43f5e
-const BLUE = "rgb(14, 165, 233)"; // #0ea5e9
 const ALL_LINES = "[data-line-color-underline]";
 
 const lineColor = (page: Page, index: number) =>
@@ -76,7 +76,7 @@ test.describe("带色复制粘贴", () => {
     });
 
     await expect(editor(page)).toHaveValue("甲\n乙\n丙\n甲\n");
-    await expectColor(page, 3, RED);
+    await expectColor(page, 3, LINE_RED);
     await expect(lineStar(page, 3), "星标应随文字一起粘到新行").toHaveCount(1);
   });
 
@@ -94,7 +94,7 @@ test.describe("带色复制粘贴", () => {
     });
 
     await expect(editor(page)).toHaveValue("甲\n乙\n丙\n乙");
-    await expectColor(page, 3, BLUE);
+    await expectColor(page, 3, LINE_BLUE);
     await expect(lineStar(page, 3), "星标应随文字一起粘到新行").toHaveCount(1);
   });
 
@@ -138,7 +138,7 @@ test.describe("带色复制粘贴", () => {
       await page.keyboard.press("Enter");
       await page.keyboard.press("Control+v");
     });
-    await expectColor(page, 3, RED);
+    await expectColor(page, 3, LINE_RED);
     await expect(lineStar(page, 3)).toHaveCount(1);
 
     await page.keyboard.press("Control+z");

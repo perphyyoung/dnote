@@ -10,7 +10,7 @@ import {
 } from "@/features/notes/clipboard";
 
 const RED = "#f43f5e";
-const BLUE = "#0ea5e9";
+const BLUE = "#2563eb";
 const BRIGHT = "#eab308";
 
 describe("lineCount", () => {

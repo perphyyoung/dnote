@@ -9,6 +9,8 @@
  */
 import { expect, type Page } from "@playwright/test";
 import {
+  LINE_BLUE,
+  LINE_RED,
   caretTo,
   editor,
   mirrorBoxes,
@@ -19,11 +21,8 @@ import {
 } from "./e2e-helpers";
 
 const LINES = ["甲", "乙", "丙"];
-// hex 进了内联渐变后会被浏览器序列化成 rgb()，断言按序列化后的值写
-const RED = "rgb(244, 63, 94)"; // #f43f5e
-const BLUE = "rgb(14, 165, 233)"; // #0ea5e9
 const ALL_LINE_COLORS = "[data-line-color-underline]";
-/// 行颜色的可见标记：行盒下沿的 1px 同色细线
+/// 行颜色的可见标记：行盒下沿的 2px 同色细线
 const lineColor = (page: Page, index: number) =>
   page.locator(`[data-line-color-underline="${index}"]`);
 /// 细线里的色值是模板拼进内联渐变的，直接查 style 里有没有这个色
@@ -56,8 +55,8 @@ test.describe("行颜色", () => {
 
     const line = lineColor(page, 1);
     await expect(line).toBeVisible();
-    await expectColor(page, 1, RED);
-    await expect(line).toHaveCSS("height", "1px");
+    await expectColor(page, 1, LINE_RED);
+    await expect(line).toHaveCSS("height", "2px");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(1); // 只给这一行上色
 
     // 画在行盒下沿：top = 该行镜像行盒的底部
@@ -67,7 +66,7 @@ test.describe("行颜色", () => {
     expect(rect.y).toBeCloseTo(boxes[1].top + boxes[1].height, 0);
 
     await page.reload();
-    await expectColor(page, 1, RED);
+    await expectColor(page, 1, LINE_RED);
 
     await paint(page, 1, "无色");
     await expect(page.locator(ALL_LINE_COLORS)).toHaveCount(0);
@@ -77,7 +76,7 @@ test.describe("行颜色", () => {
     page,
   }) => {
     await paint(page, 1, "红");
-    await expectColor(page, 1, RED);
+    await expectColor(page, 1, LINE_RED);
 
     const toggle = page.getByRole("button", { name: "行颜色显示" });
     const swatches = ["无色", "红", "绿", "蓝"] as const;
@@ -101,12 +100,12 @@ test.describe("行颜色", () => {
     for (const name of swatches) {
       await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
     }
-    await expectColor(page, 1, RED);
+    await expectColor(page, 1, LINE_RED);
   });
 
   test("删掉有色行不串到下一行；Alt+↓ 移动时颜色跟着行走", async ({ page }) => {
     await paint(page, 1, "蓝");
-    await expectColor(page, 1, BLUE);
+    await expectColor(page, 1, LINE_BLUE);
 
     // 标题条「删除当前行」：删掉第 2 行后，原来的第 3 行顶上来但不该继承蓝色
     await page.getByRole("button", { name: "删除当前行" }).click();
@@ -116,12 +115,12 @@ test.describe("行颜色", () => {
     await paint(page, 0, "红");
     await page.keyboard.press("Alt+ArrowDown");
     await expect(lineColor(page, 0)).toHaveCount(0);
-    await expectColor(page, 1, RED);
+    await expectColor(page, 1, LINE_RED);
   });
 
   test("Ctrl+D 删除有色行，Ctrl+Z 还原后颜色应还在", async ({ page }) => {
     await paint(page, 1, "红");
-    await expectColor(page, 1, RED);
+    await expectColor(page, 1, LINE_RED);
 
     // Ctrl+D 走 applyEdit（进浏览器撤销栈），删掉第 2 行
     await caretTo(page, 1, 0);
@@ -132,14 +131,14 @@ test.describe("行颜色", () => {
     // 撤销把正文恢复，颜色按 structural 的快照一起回来
     await page.keyboard.press("Control+z");
     await expect(editor(page)).toHaveValue(LINES.join("\n"));
-    await expectColor(page, 1, RED, "撤销后第 2 行应重新出现红色细线");
+    await expectColor(page, 1, LINE_RED, "撤销后第 2 行应重新出现红色细线");
   });
 
   test("在有色行上方插入新行，下方各行的颜色应留在原行", async ({ page }) => {
     await paint(page, 1, "红");
     await paint(page, 2, "蓝");
-    await expectColor(page, 1, RED);
-    await expectColor(page, 2, BLUE);
+    await expectColor(page, 1, LINE_RED);
+    await expectColor(page, 2, LINE_BLUE);
 
     // 第 2 行行首回车：新空行插在它上面，原「乙」「丙」整体下推一行
     await caretTo(page, 1, 0);
@@ -148,8 +147,8 @@ test.describe("行颜色", () => {
 
     // 新行无色；红/蓝仍贴着原来的内容，各下移一行
     await expect(lineColor(page, 1)).toHaveCount(0);
-    await expectColor(page, 2, RED, "红色应仍在「乙」这一行");
-    await expectColor(page, 3, BLUE, "蓝色应仍在「丙」这一行");
+    await expectColor(page, 2, LINE_RED, "红色应仍在「乙」这一行");
+    await expectColor(page, 3, LINE_BLUE, "蓝色应仍在「丙」这一行");
   });
 
   test("清除连续空行后，非空行的颜色不应错位", async ({ app, page }) => {
@@ -159,8 +158,8 @@ test.describe("行颜色", () => {
     // 第 2 个空行上红、「乙」上蓝
     await paint(page, 2, "红");
     await paint(page, 3, "蓝");
-    await expectColor(page, 2, RED);
-    await expectColor(page, 3, BLUE);
+    await expectColor(page, 2, LINE_RED);
+    await expectColor(page, 3, LINE_BLUE);
 
     // 菜单第三项作用于整篇（选区无关）；连续两个空行只留一个
     await rightClickLine(page, 4);
@@ -169,8 +168,8 @@ test.describe("行颜色", () => {
 
     // 「乙」从 index3 挪到 index2，蓝色应跟着它走；「丙」本来无色；
     // 被压掉的那个空行的红色归到段内留下来的空行（与「留段内第一行原样」同一口径）
-    await expectColor(page, 1, RED, "被压掉的空行的颜色归到留下来的那个空行");
-    await expectColor(page, 2, BLUE, "蓝色应仍贴在「乙」这一行");
+    await expectColor(page, 1, LINE_RED, "被压掉的空行的颜色归到留下来的那个空行");
+    await expectColor(page, 2, LINE_BLUE, "蓝色应仍贴在「乙」这一行");
     await expect(lineColor(page, 3), "「丙」不该继承蓝色").toHaveCount(0);
   });
 
@@ -184,7 +183,7 @@ test.describe("行颜色", () => {
 
     const line = lineColor(page, 0);
     await expect(line).toBeVisible();
-    await expect(line).toHaveCSS("height", "1px");
+    await expect(line).toHaveCSS("height", "2px");
     const rect = await line.boundingBox();
     if (!rect) throw new Error("取不到行颜色细线");
     expect(rect.y).toBeCloseTo(boxes[0].top + boxes[0].height, 0);

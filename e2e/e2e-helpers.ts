@@ -31,6 +31,10 @@ const APP_URL = "http://tauri.localhost";
 /// 临时目录（实例数据目录、WebView2 profile、剪贴板锁都放这里，已 gitignore）
 const TEMP = path.join(ROOT, "temp");
 
+/// 行颜色的断言值：hex 进了内联渐变后会被浏览器序列化成 rgb()，按序列化后的值写
+export const LINE_RED = "rgb(244, 63, 94)"; // #f43f5e
+export const LINE_BLUE = "rgb(37, 99, 235)"; // #2563eb
+
 export interface AppHandle {
   child: ChildProcess;
   browser: Browser;
