@@ -68,7 +68,8 @@ test.describe("光标行操作浮条", () => {
   });
 
   test("位置：水平跟光标 x；顶部行放下方、底部行放上方", async ({ app, page }) => {
-    const long = "甲乙丙丁戊己庚辛壬癸";
+    // 20 个汉字：足够长，且不会折行（折行会改变浮条的垂直定位，干扰上面的断言）
+    const long = "甲乙丙丁戊己庚辛壬癸".repeat(2);
     await seedLines(app, page, [long, "乙", "丙"]);
 
     // 光标在第 1 行行首 → 顶部行，浮条在行下方
@@ -79,12 +80,13 @@ test.describe("光标行操作浮条", () => {
     if (!box) throw new Error("取不到浮条位置");
     expect(box.y).toBeGreaterThanOrEqual(boxes[0].top + boxes[0].height - 1);
 
-    // 同一行内把光标往右移：浮条跟着光标 x 右移
+    // 光标从行首移到行末：浮条跟着光标 x 右移。起点贴编辑器左缘（被夹住），
+    // 位移应超过半个浮条宽 —— 阈值跟着浮条自身尺寸走，不钉具体像素。
     const xAtStart = box.x;
-    await caretTo(page, 0, 9);
+    await caretTo(page, 0, long.length);
     await expect
       .poll(async () => (await bar(page).boundingBox())?.x ?? xAtStart)
-      .toBeGreaterThan(xAtStart + 20);
+      .toBeGreaterThan(xAtStart + box.width / 2);
 
     // 光标在最后一行 → 底部行，浮条在行上方
     await caretTo(page, 2, 0);
