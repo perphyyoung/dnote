@@ -5,6 +5,7 @@ import HelpPanel from "@/features/help/HelpPanel.vue";
 import { exportNotesBackup, pickNotesBackup, type ImportedNotes } from "@/features/notes/backup";
 import NoteEditor from "@/features/notes/NoteEditor.vue";
 import { useNotes } from "@/features/notes/useNotes";
+import { setShowActionBar, showActionBar } from "@/features/settings/actionBarVisible";
 import { applyAutoStart, autoStart, setAutoStart } from "@/features/settings/autostart";
 import {
   BACKGROUND_ALPHA_MAX,
@@ -82,6 +83,11 @@ function togglePin() {
 /// 行颜色显示开关：只影响“画不画行下细线”，颜色本身留在 localStorage 里，重新打开原样回来
 function toggleLineColors() {
   setShowLineColors(!showLineColors.value);
+}
+
+/// 浮条显示开关：关掉只是浮条不再出现（高亮、快捷键与右键菜单都不受影响）
+function toggleActionBar() {
+  setShowActionBar(!showActionBar.value);
 }
 
 // 启动时始终按解析结果应用一次（未存过 = 沿用窗口配置的默认值「置顶」）。
@@ -175,7 +181,7 @@ function confirmImport(): void {
 /// 为什么不能只靠 `:hover`：点 `-` 缩进托盘时指针就停在按钮上，WebView2 不会补 `pointerleave`；
 /// 窗口重新显示时系统也不会补 `WM_MOUSEMOVE`（光标没动过），于是 `:hover` 命中一直挂着 ——
 /// 表现就是"缩进托盘再唤回，那颗按钮还亮着"。自绘后只由"指针真的又进来过"决定。
-type HeaderKey = "help" | "lineColors" | "pin" | "settings" | "hide";
+type HeaderKey = "help" | "actionBar" | "lineColors" | "pin" | "settings" | "hide";
 const hoveredKey = ref<HeaderKey | null>(null);
 
 /// 标题条按钮配色：常亮（浮层开着 / 已置顶）或正被悬停 → 亮色；悬停再加一层薄纱底
@@ -393,6 +399,35 @@ function onVisibilityChange(): void {
         @click="toggleOverlay('help')"
       >
         ?
+      </button>
+      <!-- 浮条显示开关（胶囊 + 两道短杠 = 一条工具栏）：默认开；关掉只是浮条不再出现，
+           当前行高亮、快捷键与右键菜单都不受影响。无快捷键，title 不带快捷键后缀。 -->
+      <button
+        type="button"
+        class="flex h-6 w-6 items-center justify-center rounded transition"
+        :class="headerBtnClass('actionBar', showActionBar)"
+        :title="showActionBar ? '隐藏浮条' : '显示浮条'"
+        aria-label="浮条显示"
+        :aria-pressed="showActionBar"
+        @pointerenter="hoveredKey = 'actionBar'"
+        @pointerleave="hoveredKey = null"
+        @click="toggleActionBar"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="13"
+          height="13"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="2" y="8.5" width="20" height="7" rx="3.5" />
+          <path d="M7 12h3.5" />
+          <path d="M13.5 12h3.5" />
+        </svg>
       </button>
       <!-- 行颜色显示开关（眼睛 + 底线）：默认开；关掉只是不画行下细线，颜色仍按行号保留。
            无快捷键，title 不带快捷键后缀。 -->

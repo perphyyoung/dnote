@@ -40,9 +40,34 @@ test.describe("光标行操作浮条", () => {
   // 同文件的用例共用一个实例与数据目录，每个用例先把数据复位到已知的三行
   test.beforeEach(async ({ app, page }) => {
     await seedLines(app, page, LINES);
-    // 同文件共用一个 WebView profile：行颜色开关不复位会串用例
-    await page.evaluate(() => localStorage.removeItem("dnote:show-line-colors"));
+    // 同文件共用一个 WebView profile：行颜色 / 浮条开关不复位会串用例
+    await page.evaluate(() => {
+      localStorage.removeItem("dnote:show-line-colors");
+      localStorage.removeItem("dnote:show-action-bar");
+    });
     await page.reload();
+  });
+
+  test("标题条的开关关掉浮条：点进任意行都不出现，重开即回来", async ({ page }) => {
+    const toggle = page.getByRole("button", { name: "浮条显示", exact: true });
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await caretTo(page, 1, 0);
+    await expect(bar(page)).toBeVisible();
+
+    // 关：点标题条按钮会让编辑器失焦，浮条随之收起
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(bar(page)).toHaveCount(0);
+
+    // 再点进编辑器：开关关着，浮条不该因为聚焦 / 换行而出现
+    await caretTo(page, 1, 0);
+    await expect(bar(page)).toHaveCount(0);
+
+    // 重开 + 重新聚焦：浮条回到光标行
+    await toggle.click();
+    await caretTo(page, 1, 0);
+    await expect(bar(page)).toBeVisible();
   });
 
   test("跟着光标行出现，失焦即收；指针移动不影响它", async ({ page }) => {

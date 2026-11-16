@@ -26,6 +26,7 @@ import {
   marksAfterPaste,
 } from "@/features/notes/clipboard";
 import { commands } from "@/bindings";
+import { showActionBar } from "@/features/settings/actionBarVisible";
 import {
   remapMarks,
   spliceMarks,
@@ -276,7 +277,13 @@ function clearActionCopy(): void {
 /// 光标行 / 布局 / 滚动变化后重算浮条；失焦、拖拽、右键菜单、行滚出可视区都收起
 function updateActionBar(): void {
   const line = caretIndex.value;
-  if (line === null || drag.value !== null || contextMenu.value !== null || pointerHeld) {
+  if (
+    line === null ||
+    !showActionBar.value ||
+    drag.value !== null ||
+    contextMenu.value !== null ||
+    pointerHeld
+  ) {
     actionBar.value = null;
     clearActionCopy();
     return;
@@ -290,6 +297,9 @@ function updateActionBar(): void {
   if (actionBar.value?.line !== line) clearActionCopy(); // 换行了，旧行的对勾作废
   actionBar.value = { line, ...pos };
 }
+
+// 开关一关就立刻收起；打开时按当前光标行立刻回来，不用再点一下编辑器
+watch(showActionBar, updateActionBar, { flush: "post" });
 
 /// 只有反馈仍属于浮条当前行时才显示在按钮上
 const actionCopyState = computed<"ok" | "fail" | null>(() => {
