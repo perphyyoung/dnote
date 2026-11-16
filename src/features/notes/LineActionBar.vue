@@ -57,7 +57,7 @@ function setColor(value: LineColor): void {
 
 <template>
   <div
-    class="fixed z-30 flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 p-1 shadow-xl"
+    class="fixed z-30 flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/50 p-1 shadow-xl"
     role="toolbar"
     aria-label="行操作"
     @pointerdown.stop

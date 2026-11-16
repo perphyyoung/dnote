@@ -51,6 +51,8 @@ test.describe("光标行操作浮条", () => {
 
     await caretTo(page, 1, 0);
     await expect(bar(page)).toBeVisible();
+    // 浮条必须是半透明：它压在光标行上下的文字上，实底会把字整块盖死
+    await expect(bar(page)).toHaveCSS("background-color", "rgba(30, 41, 59, 0.5)");
     const before = await bar(page).boundingBox();
     if (!before) throw new Error("取不到浮条位置");
 
